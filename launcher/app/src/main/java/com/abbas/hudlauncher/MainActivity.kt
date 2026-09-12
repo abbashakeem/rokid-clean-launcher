@@ -179,7 +179,11 @@ class MainActivity : AppCompatActivity() {
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
             findViewById(R.id.app_picker_title), scenes, extraEntries = {
                 // an update entry appears at the front of the carousel only when one is downloaded
-                updates.pending?.let { u -> listOf(AppEntry("Update to ${u.versionName}", R.drawable.ic_update) { updates.install() }) } ?: emptyList()
+                updates.pending?.let { u ->
+                    listOf(AppEntry("Update to ${u.versionName}", R.drawable.ic_update) {
+                        lifecycleScope.launch { updates.installPreferSilent() }
+                    })
+                } ?: emptyList()
             })
         musicPill = findViewById(R.id.music_pill)
         musicState = findViewById(R.id.music_state)

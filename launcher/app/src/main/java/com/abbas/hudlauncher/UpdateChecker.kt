@@ -39,18 +39,35 @@ class UpdateChecker(private val context: Context) {
             val code = j.optInt("version_code")
             if (code <= BuildConfig.VERSION_CODE) return@withContext null
             val update = Update(code, j.optString("version_name"), j.optString("notes"), j.optString("sha256"))
-            val file = File(context.cacheDir, "update-$code.apk")
+            val file = File(stagingDir(), "update-$code.apk")
             if (!file.exists() || sha256(file) != update.sha256) {
                 download(file)
                 if (update.sha256.isNotBlank() && sha256(file) != update.sha256) {
                     Log.w(TAG, "checksum mismatch, discarding download"); file.delete(); return@withContext null
                 }
             }
-            context.cacheDir.listFiles { f -> f.name.startsWith("update-") && f != file }?.forEach { it.delete() }
+            stagingDir().listFiles { f -> f.name.startsWith("update-") && f != file }?.forEach { it.delete() }
             pending = update; pendingFile = file
             Log.d(TAG, "update ready: ${update.versionName} (${update.versionCode})")
             update
         } catch (e: Exception) { Log.w(TAG, "update check failed: ${e.message}"); null }
+    }
+
+    /** The shell user can read external app files, but not our private cache. */
+    private fun stagingDir(): File = context.getExternalFilesDir(null) ?: context.cacheDir
+
+    /**
+     * Installs with no prompt when the shell bridge is available, otherwise falls back to the
+     * system installer and its confirmation dialog. Returns true if the silent path was used.
+     */
+    suspend fun installPreferSilent(): Boolean {
+        val file = pendingFile ?: return false
+        if (ShellBridge.installApk(context, file.absolutePath)) {
+            Log.d(TAG, "installed without a prompt")
+            return true
+        }
+        install()
+        return false
     }
 
     /** Hands the APK to the system installer; it asks the user to confirm. */

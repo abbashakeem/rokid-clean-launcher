@@ -25,7 +25,6 @@ class HudAccessibilityService : AccessibilityService() {
     private var tapTimes = LongArray(3)
     private var tapIndex = 0
     private var lastReturnAt = 0L
-    private var sawScenePage = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -33,15 +32,11 @@ class HudAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        val pkg = event.packageName?.toString() ?: return
-        val cls = event.className?.toString() ?: return
-        when {
-            pkg == packageName -> { sawScenePage = false; ReturnWatch.disarm(this) }
-            pkg == ROKID_PKG && cls != ROKID_HOME -> sawScenePage = true
-            // Rokid's home appearing straight after one of its scene pages means the page closed.
-            pkg == ROKID_PKG && cls == ROKID_HOME && sawScenePage -> { sawScenePage = false; goHome("scene closed") }
-        }
+        // Intentionally does not auto-return from Rokid scenes. Scenes run inside Rokid's own home
+        // task, so its home activity resumes during the transition INTO a scene; reacting to that
+        // pulled our launcher in front of the scene and blanked it. ReturnWatch (usage-stats based,
+        // with a grace period) owns scene returns. This service exists only for the triple-tap home
+        // gesture below, which nothing else can provide.
     }
 
     /** Observe only: consuming taps would break Rokid's own double-tap-to-exit. */
