@@ -26,6 +26,8 @@ class LauncherSettings(BaseModel):
     nav_off_seconds: int = Field(10, ge=3, le=120)
     nav_wake_distance_m: int = Field(300, ge=50, le=2000)               # wake when the next turn is within this distance
     nav_mute_voice: bool = False                                        # mute Bluetooth media on the glasses while navigating
+    nav_volume_nudge: bool = False                                      # re-send volume to the phone after each turn (iOS ducking workaround)
+    nav_take_over: bool = True                                          # bring the HUD to the front when a route starts
     # misc
     marquee_titles: bool = True
 
