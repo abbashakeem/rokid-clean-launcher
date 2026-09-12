@@ -3,8 +3,6 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.Drawable
 import android.util.Log
 import android.view.LayoutInflater
@@ -35,7 +33,6 @@ class AppPicker(
 ) {
     private var apps: List<AppEntry> = emptyList()
     private var selected = 0
-    private val grayscale = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
     val isOpen: Boolean get() = panel.visibility == View.VISIBLE
 
@@ -80,7 +77,6 @@ class AppPicker(
                 view.visibility = View.INVISIBLE
             } else {
                 view.setImageDrawable(app.icon)
-                view.colorFilter = grayscale                    // the display is monochrome anyway
                 val centre = offset == 0
                 view.scaleX = if (centre) 1.25f else 0.85f
                 view.scaleY = view.scaleX
@@ -99,11 +95,24 @@ class AppPicker(
             .map {
                 AppEntry(
                     label = it.loadLabel(pm).toString(),
-                    icon = it.loadIcon(pm),
+                    icon = context.getDrawable(iconFor(it.activityInfo.packageName))!!,
                     component = ComponentName(it.activityInfo.packageName, it.activityInfo.name),
                 )
             }
             .sortedBy { it.label.lowercase() }
+    }
+
+    /** Simple white outline glyphs instead of the apps' own bitmap icons, which read as heavy tiles. */
+    private fun iconFor(pkg: String): Int = when {
+        pkg.contains("camera") -> R.drawable.app_camera
+        pkg == "com.android.settings" -> R.drawable.app_settings
+        pkg.contains("soundrecorder") -> R.drawable.app_recorder
+        pkg == "com.rokid.os.sprite.launcher" -> R.drawable.app_rokid
+        pkg.contains("alipay", ignoreCase = true) -> R.drawable.app_pay_card
+        pkg.contains("wxpay") || pkg.contains("tencent") -> R.drawable.app_pay_chat
+        pkg.contains("ar_pay") -> R.drawable.app_pay_qr
+        pkg.contains("jd.") || pkg.contains("buy") -> R.drawable.app_shop
+        else -> R.drawable.app_generic
     }
 
     companion object {
