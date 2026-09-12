@@ -30,10 +30,18 @@ class AppPicker(
 ) {
     private var apps: List<AppEntry> = emptyList()
     private var selected = 0
+    private val prefs = context.getSharedPreferences("hud", Context.MODE_PRIVATE)
 
     val isOpen: Boolean get() = panel.visibility == View.VISIBLE
 
-    fun open() { apps = extraEntries() + buildEntries(); selected = 0; panel.visibility = View.VISIBLE; render() }
+    fun open() {
+        apps = extraEntries() + buildEntries()
+        // start on whatever was opened last; an update entry at the front takes precedence
+        val last = prefs.getString(KEY_LAST, null)
+        selected = apps.indexOfFirst { it.label == last }.takeIf { it >= 0 } ?: 0
+        panel.visibility = View.VISIBLE
+        render()
+    }
     fun close() { panel.visibility = View.GONE }
 
     fun move(delta: Int) {
@@ -46,6 +54,7 @@ class AppPicker(
         // Opening a Rokid scene makes its assist server force-stop us (it kills every non-system
         // package among the top tasks), so our last frame before the hand-off should look deliberate:
         // show "Opening X" briefly instead of vanishing mid-carousel.
+        prefs.edit().putString(KEY_LAST, app.label).apply()
         showLaunching(app.label)
         if (app.watchReturn) ReturnWatch.arm(context)
         Handler(Looper.getMainLooper()).postDelayed({
@@ -107,5 +116,6 @@ class AppPicker(
         private const val TAG = "AppPicker"
         private const val SIDE = 2
         private const val HANDOFF_MS = 260L
+        private const val KEY_LAST = "picker_last"
     }
 }

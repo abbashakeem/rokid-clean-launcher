@@ -231,9 +231,14 @@ class MainActivity : AppCompatActivity() {
         setSystemClickSounds(false)
         ReturnWatch.disarm(this)        // we are back in front; nothing to watch for
         isInForeground = true
-        scenes.bind()
-        media.start()
-        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        // we are cold-started every time a Rokid scene force-stops us, so let the first frame draw
+        // before binding services and registering receivers
+        window.decorView.post {
+            if (!isInForeground) return@post
+            scenes.bind()
+            media.start()
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }
         statusJob = lifecycleScope.launch {
             while (isActive) { updateWifi(); renderPhoneLink(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
         }

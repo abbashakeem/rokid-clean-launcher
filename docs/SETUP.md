@@ -238,7 +238,7 @@ Grant two permissions once over USB. The first lets the brightness slider write 
 the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT && adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT && adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow && adb shell settings put secure enabled_accessibility_services com.abbas.hudlauncher/.HudAccessibilityService && adb shell settings put secure accessibility_enabled 1
 ```
 
 The last two feed the return watcher. Rokid's assist server force-stops the foreground third-party app
@@ -246,6 +246,14 @@ when it opens a scene, then shows Rokid's home with the scene page on top, and d
 the page. The system re-binds our notification listener within a fraction of a second of the kill, so the
 watcher lives there: armed via SharedPreferences before the scene call, it polls usage events and
 relaunches the HUD as soon as Rokid's home resumes after the page.
+
+### Returning from a Rokid page
+
+`HudAccessibilityService` watches window changes, so a Rokid page closing onto Rokid's home brings
+the HUD back immediately rather than within one poll of `ReturnWatch`, which stays as the fallback
+for the window where the service is being rebound after a force-stop. The same service observes (but
+never consumes) key events, so a triple tap returns to the HUD from any app; the touchpad has no home
+key, so there is otherwise no way back from, say, Settings.
 
 ### Why opening a Rokid scene flashes its launcher
 

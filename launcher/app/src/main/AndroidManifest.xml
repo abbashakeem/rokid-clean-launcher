@@ -63,6 +63,19 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- instant return from Rokid scenes + triple-tap home; enable with:
+             adb shell settings put secure enabled_accessibility_services com.abbas.hudlauncher/.HudAccessibilityService
+             adb shell settings put secure accessibility_enabled 1 -->
+        <service
+            android:name=".HudAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service" />
+        </service>
+
         <service
             android:name=".HudNotificationListener"
             android:exported="true"
