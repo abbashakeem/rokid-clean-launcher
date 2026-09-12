@@ -19,11 +19,26 @@ import android.view.WindowManager
  *  3. On demand: drop the window brightness to zero and hide the content, which reads as "off" on
  *     the waveguide, then let (1) put the panel to sleep for real a moment later.
  */
-class DisplaySleeper(private val activity: Activity, private val idleMs: Long, private val content: View) {
+class DisplaySleeper(private val activity: Activity, var idleMs: Long, private val content: View) {
     private val handler = Handler(Looper.getMainLooper())
     private val blankRunnable = Runnable { blank() }
     private var blanked = false
     private var reflectionWorks = true
+
+    /** Turn the panel on (e.g. for a navigation turn) and restart the idle timer. Needs WAKE_LOCK. */
+    @Suppress("DEPRECATION")
+    fun wake() {
+        try {
+            val pm = activity.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            val wl = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "hud:nav")
+            wl.acquire(1500)
+        } catch (e: Exception) { Log.w(TAG, "wake failed: ${e.message}") }
+        touch()
+    }
+
+    /** Keep the panel on until [release]. */
+    fun holdOn() { handler.removeCallbacks(blankRunnable); unblank(); applyWindowTimeout(60 * 60 * 1000L) }
+    fun release() { applyWindowTimeout(idleMs); touch() }
 
     fun onResume() {
         unblank()

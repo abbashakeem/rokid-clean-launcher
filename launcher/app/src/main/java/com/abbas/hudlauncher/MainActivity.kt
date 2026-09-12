@@ -10,6 +10,8 @@ import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -63,6 +65,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sleeper: DisplaySleeper
     private lateinit var appPicker: AppPicker
     private lateinit var scenes: RokidScenes
+    private lateinit var configRepo: ConfigRepository
+    private val cfg: LauncherConfig get() = configRepo.current
+    private var configJob: Job? = null
+    private var lastWeather: Weather? = null
+    // navigation card
+    private lateinit var navCard: View
+    private lateinit var navIcon: ImageView
+    private lateinit var navDistance: TextView
+    private lateinit var navRoad: TextView
+    private lateinit var navSummary: TextView
+    private var navLastStepKey: String? = null
+    private var navHolding = false
+    private val navHandler = Handler(Looper.getMainLooper())
+    private val navSleepRunnable = Runnable { navHolding = false; sleeper.release() }
     private lateinit var media: MediaWatcher
     private lateinit var musicPill: View
     private lateinit var musicState: ImageView
@@ -123,7 +139,18 @@ class MainActivity : AppCompatActivity() {
         calendarRepo = CalendarRepository(this)
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
+        configRepo = ConfigRepository(this)
+        navCard = findViewById(R.id.nav_card)
+        navIcon = findViewById(R.id.nav_icon)
+        navDistance = findViewById(R.id.nav_distance)
+        navRoad = findViewById(R.id.nav_road)
+        navSummary = findViewById(R.id.nav_summary)
         scenes = RokidScenes(this)
+        scenes.onWeather = { if (cfg.weatherSource == "rokid") renderWeather(weatherRepo.fromRokid(it)) }
+        scenes.onSchedule = { if (cfg.calendarSource != "api") lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, it, cfg.maxEvents)) } }
+        scenes.onNavStart = { onNavStart(it) }
+        scenes.onNavUpdate = { onNavUpdate(it) }
+        scenes.onNavStop = { onNavStop() }
         scenes.onPhoneLink = { renderPhoneLink() }
         scenes.onMessages = { if (messagesPanel.visibility == View.VISIBLE) renderMessages(it) }
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
@@ -154,6 +181,15 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         hideSystemBars()
+        sleeper.idleMs = cfg.idleOffSeconds * 1000L
+        configJob = lifecycleScope.launch {
+            while (isActive) {
+                val before = cfg
+                val after = configRepo.refresh()
+                if (after != before) applyConfig()
+                delay(Config.CONFIG_REFRESH_MS)
+            }
+        }
         if (appPicker.isOpen) closeAppPicker()
         if (messagesPanel.visibility == View.VISIBLE) closeMessages()
         ticker.start()
@@ -167,16 +203,16 @@ class MainActivity : AppCompatActivity() {
             while (isActive) { updateWifi(); renderPhoneLink(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
         }
         weatherJob = lifecycleScope.launch {
-            while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
+            while (isActive) { refreshWeather(); applyAutoDim(); delay(Config.WEATHER_REFRESH_MS) }
         }
         calendarJob = lifecycleScope.launch {
-            while (isActive) { renderAgenda(calendarRepo.fetch()); delay(Config.CALENDAR_REFRESH_MS) }
+            while (isActive) { renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)); delay(Config.CALENDAR_REFRESH_MS) }
         }
     }
 
     override fun onPause() {
         super.onPause()
-        ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel()
+        ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel(); configJob?.cancel()
         sleeper.onPause()
         setSystemClickSounds(true)
         try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
@@ -254,17 +290,48 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshNow() {
         weatherJob?.cancel(); calendarJob?.cancel()
-        weatherJob = lifecycleScope.launch { renderWeather(weatherRepo.fetch()) }
-        calendarJob = lifecycleScope.launch { renderAgenda(calendarRepo.fetch()) }
+        weatherJob = lifecycleScope.launch { configRepo.refresh(); applyConfig(); refreshWeather() }
+        calendarJob = lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)) }
+    }
+
+    private suspend fun refreshWeather() {
+        val rokid = scenes.weather
+        if (cfg.weatherSource == "rokid" && rokid != null) renderWeather(weatherRepo.fromRokid(rokid))
+        else renderWeather(weatherRepo.fetch())
+    }
+
+    /** Re-apply settings that are not read on the fly. */
+    private fun applyConfig() {
+        sleeper.idleMs = cfg.idleOffSeconds * 1000L
+        sleeper.touch()
+        applyAutoDim()
+        lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)) }
+        if (cfg.navCard == "off") onNavStop()
+    }
+
+    /** Auto-dim: day/night panel brightness from the backend weather's sunrise/sunset. */
+    private fun applyAutoDim() {
+        if (!cfg.autoDim) return
+        val w = lastWeather ?: return
+        if (w.sunriseMs == 0L || w.sunsetMs == 0L) return
+        val nowMs = System.currentTimeMillis()
+        // sunrise/sunset are for today (UTC instants); compare time-of-day so stale values still work
+        val day = java.util.Calendar.getInstance()
+        fun tod(ms: Long): Int { val c = java.util.Calendar.getInstance().apply { timeInMillis = ms }; return c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE) }
+        val now = tod(nowMs); val rise = tod(w.sunriseMs); val set = tod(w.sunsetMs)
+        val isDay = now in rise..set
+        val target = if (isDay) cfg.brightnessDay else cfg.brightnessNight
+        if (brightness.get() != target && brightness.canWrite) { brightness.set(target); Log.d(TAG, "auto-dim -> $target (${if (isDay) "day" else "night"})") }
     }
 
     // ---------- rendering ----------
 
     private fun renderWeather(w: Weather) {
+        lastWeather = if (w.isMock) lastWeather else w
         wxCity.text = w.city
         wxTemp.text = "${w.temp}°"
         wxCondition.text = w.condition
-        wxFeels.text = getString(R.string.feels_like, w.feelsLike)
+        wxFeels.text = w.thirdLine()
         wxIcon.setImageResource(w.iconRes)
         wxViews.forEach { it.alpha = if (w.isMock) 0.6f else 1f }   // mock data reads dimmer
     }
@@ -281,7 +348,10 @@ class MainActivity : AppCompatActivity() {
         for (ev in agenda.events) {
             val row = inflater.inflate(R.layout.row_event, agendaView, false)
             row.findViewById<TextView>(R.id.col_when).text = ev.whenText(getString(R.string.all_day))
-            row.findViewById<TextView>(R.id.col_title).text = ev.title
+            row.findViewById<TextView>(R.id.col_title).apply {
+                text = ev.title
+                if (cfg.marqueeTitles) { ellipsize = android.text.TextUtils.TruncateAt.MARQUEE; isSingleLine = true; marqueeRepeatLimit = -1; isSelected = true }
+            }
             agendaView.addView(row)
         }
         agendaView.alpha = if (agenda.fromCache) 0.6f else 1f
@@ -438,6 +508,77 @@ class MainActivity : AppCompatActivity() {
             val i = buttons.indexOf(currentFocus).let { if (it < 0) 2 else it }
             buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }
+    }
+
+    // ---------- navigation card ----------
+
+    private fun onNavStart(destination: String) {
+        if (cfg.navCard == "off") return
+        navLastStepKey = null
+        navRoad.text = destination
+        navDistance.text = ""
+        navSummary.text = ""
+        showNavCard(true)
+        wakeForNav()
+    }
+
+    private fun onNavUpdate(u: NavUpdate) {
+        if (cfg.navCard == "off") return
+        if (navCard.visibility != View.VISIBLE) showNavCard(true)
+        if (u.iconPng != null) {
+            try { navIcon.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(u.iconPng, 0, u.iconPng.size)) } catch (_: Exception) { navIcon.setImageResource(navIconFor(u.iconType)) }
+        } else navIcon.setImageResource(navIconFor(u.iconType))
+        navDistance.text = formatDistance(u.stepRemainM)
+        navRoad.text = if (u.iconType == 15) "Arrive: ${u.nextRoadName}" else u.nextRoadName.ifBlank { u.curRoadName }
+        navRoad.isSelected = true
+        val mins = (u.routeRemainS + 59) / 60
+        navSummary.text = "${formatDistance(u.routeRemainM)}  ·  ${if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"}  ·  ${u.speedKmh} km/h"
+
+        // Smart mode: wake for a new instruction or when the turn is close; sleep navOffSeconds after the step changes.
+        val stepKey = "${u.iconType}|${u.nextRoadName}"
+        val newStep = stepKey != navLastStepKey
+        navLastStepKey = stepKey
+        when (cfg.navCard) {
+            "always" -> { if (!navHolding) { navHolding = true; sleeper.holdOn() }; sleeper.wake() }
+            "smart" -> {
+                if (newStep || u.stepRemainM <= cfg.navWakeDistanceM) wakeForNav()
+            }
+        }
+    }
+
+    private fun onNavStop() {
+        showNavCard(false)
+        navHandler.removeCallbacks(navSleepRunnable)
+        if (navHolding) { navHolding = false; sleeper.release() }
+    }
+
+    /** Turn the panel on and keep it on; schedule sleep after navOffSeconds of no further wake. */
+    private fun wakeForNav() {
+        if (!navHolding) { navHolding = true; sleeper.holdOn() }
+        sleeper.wake()
+        navHandler.removeCallbacks(navSleepRunnable)
+        navHandler.postDelayed(navSleepRunnable, cfg.navOffSeconds * 1000L)
+    }
+
+    private fun showNavCard(show: Boolean) {
+        navCard.visibility = if (show) View.VISIBLE else View.GONE
+        headerViews.forEach { it.visibility = if (show) View.INVISIBLE else View.VISIBLE }
+    }
+
+    private fun formatDistance(m: Int): String = if (m >= 1000) String.format(java.util.Locale.US, "%.1f km", m / 1000f) else "$m m"
+
+    /** Amap-style icon types used by the Rokid feed; a PNG from the phone takes precedence when present. */
+    private fun navIconFor(type: Int): Int = when (type) {
+        2 -> R.drawable.nav_left
+        3 -> R.drawable.nav_right
+        4 -> R.drawable.nav_slight_left
+        5 -> R.drawable.nav_slight_right
+        6 -> R.drawable.nav_sharp_left
+        7 -> R.drawable.nav_sharp_right
+        8 -> R.drawable.nav_uturn
+        11, 12 -> R.drawable.nav_roundabout
+        15 -> R.drawable.nav_destination
+        else -> R.drawable.nav_straight
     }
 
     private fun hideSystemBars() {

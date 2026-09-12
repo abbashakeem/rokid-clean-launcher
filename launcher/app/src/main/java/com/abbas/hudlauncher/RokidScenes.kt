@@ -15,6 +15,18 @@ import org.json.JSONObject
 
 data class PhoneMessage(val app: String, val title: String, val text: String, val time: Long)
 
+/** Weather relayed by the Rokid phone app (Weather_SendData). weatherId follows Rokid's table. */
+data class RokidWeather(val address: String, val temp: Float, val tempHigh: Float, val tempLow: Float, val weatherId: Int, val receivedAt: Long)
+
+/** Phone calendar entry relayed by the Rokid app (Ntf_ResetScheduleList). No calendar name is included. */
+data class RokidSchedule(val title: String, val description: String, val scheduleTime: Long)
+
+/** Navigation turn update from the phone (Nav_UpdateInfo, overseas format). */
+data class NavUpdate(
+    val iconType: Int, val iconPng: ByteArray?, val nextRoadName: String, val curRoadName: String,
+    val stepRemainM: Int, val routeRemainM: Int, val routeRemainS: Int, val speedKmh: Int,
+)
+
 /**
  * Client of Rokid's assist server (com.rokid.os.sprite.assistserver/MasterAssistService, exported, no
  * permission). Protocol reverse-engineered from Rokid's launcher APK:
@@ -35,6 +47,15 @@ data class PhoneMessage(val app: String, val title: String, val text: String, va
 class RokidScenes(private val context: Context) {
     var onPhoneLink: ((Boolean) -> Unit)? = null
     var onMessages: ((List<PhoneMessage>) -> Unit)? = null
+    var onWeather: ((RokidWeather) -> Unit)? = null
+    var onSchedule: ((List<RokidSchedule>) -> Unit)? = null
+    var onNavStart: ((destination: String) -> Unit)? = null
+    var onNavUpdate: ((NavUpdate) -> Unit)? = null
+    var onNavStop: (() -> Unit)? = null
+
+    var weather: RokidWeather? = null; private set
+    var schedule: List<RokidSchedule> = emptyList(); private set
+    var navActive = false; private set
 
     var phoneLinked = false; private set
     val messages = ArrayDeque<PhoneMessage>()
@@ -56,7 +77,11 @@ class RokidScenes(private val context: Context) {
                     }
                     reply?.writeNoException(); reply?.writeInt(1)
                 }
-                3 -> { data.readString(); data.readString(); val b = data.createByteArray(); reply?.writeNoException(); reply?.writeByteArray(b) }
+                3 -> {
+                    val key = data.readString(); val param = data.readString(); val b = data.createByteArray()
+                    if (key == "Nav" && param != null) main.post { handleNav(param, b) }
+                    reply?.writeNoException(); reply?.writeByteArray(b)
+                }
                 else -> return super.onTransact(code, data, reply, flags)
             }
             return true
@@ -132,6 +157,19 @@ class RokidScenes(private val context: Context) {
                 "cmd_bluetooth_gatt_normal_result" -> {
                     val d = JSONObject(o.optString("data"))
                     when (d.optString("cmd")) {
+                        "Weather_SendData" -> {
+                            val w = JSONObject(d.optString("caps1"))
+                            weather = RokidWeather(w.optString("address"), w.optDouble("temp", 0.0).toFloat(),
+                                w.optDouble("tempHigh", 0.0).toFloat(), w.optDouble("tempLow", 0.0).toFloat(),
+                                w.optInt("weatherId", 0), System.currentTimeMillis())
+                            weather?.let { onWeather?.invoke(it) }
+                        }
+                        "Ntf_ResetScheduleList" -> {
+                            val arr = JSONArray(d.optString("caps1"))
+                            schedule = (0 until arr.length()).map { arr.getJSONObject(it) }
+                                .map { RokidSchedule(it.optString("title"), it.optString("description"), it.optLong("scheduleTime")) }
+                            onSchedule?.invoke(schedule)
+                        }
                         "Ntf_SendNewMsg" -> { addMessage(JSONObject(d.optString("caps1"))); onMessages?.invoke(messages.toList()) }
                         "Ntf_ResetMsgList" -> {
                             messages.clear()
@@ -145,6 +183,28 @@ class RokidScenes(private val context: Context) {
                 else -> Log.v(TAG, "msg ${o.optString("type")}")
             }
         } catch (e: Exception) { Log.w(TAG, "bad message: ${e.message} :: ${json.take(200)}") }
+    }
+
+    /** Nav stream: param = {"subCmd": "Nav_Start|Nav_UpdateInfo|Nav_Stop", "data": json}, bytes = turn icon PNG. */
+    private fun handleNav(param: String, bytes: ByteArray?) {
+        try {
+            val p = JSONObject(param)
+            val d = p.optString("data")
+            when (p.optString("subCmd")) {
+                "Nav_Start" -> { navActive = true; onNavStart?.invoke(JSONObject(d).optString("destination")) }
+                "Nav_Stop" -> { navActive = false; onNavStop?.invoke() }
+                "Nav_UpdateInfo" -> {
+                    navActive = true
+                    val u = JSONObject(d)
+                    onNavUpdate?.invoke(NavUpdate(
+                        iconType = u.optInt("iconType"), iconPng = bytes?.takeIf { it.size > 16 },
+                        nextRoadName = u.optString("nextRoadName"), curRoadName = u.optString("curRoadName"),
+                        stepRemainM = u.optInt("curStepRetainDis"), routeRemainM = u.optInt("routeRemainDis"),
+                        routeRemainS = u.optInt("routeRemainTime"), speedKmh = u.optInt("currentSpeed")))
+                }
+                else -> Log.v(TAG, "nav ${p.optString("subCmd")}")
+            }
+        } catch (e: Exception) { Log.w(TAG, "bad nav data: ${e.message}") }
     }
 
     private fun addMessage(m: JSONObject) {

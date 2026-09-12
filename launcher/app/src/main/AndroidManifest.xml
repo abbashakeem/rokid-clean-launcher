@@ -12,6 +12,7 @@
     <!-- return watcher: adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow ; ... SYSTEM_ALERT_WINDOW allow -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Package visibility (Android 11+): lets the app picker see other launchable apps -->
     <queries>

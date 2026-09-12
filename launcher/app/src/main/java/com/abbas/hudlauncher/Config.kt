@@ -9,6 +9,7 @@ object Config {
     const val CALENDAR_REFRESH_MS = 5 * 60 * 1000L
     const val MAX_EVENTS = 4
     const val STATUS_REFRESH_MS = 15_000L
+    const val CONFIG_REFRESH_MS = 5 * 60 * 1000L
 
     /** Display off after this much idle time, like Rokid's launcher. */
     const val IDLE_OFF_MS = 5_000L

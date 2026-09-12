@@ -27,19 +27,28 @@ data class Agenda(val events: List<AgendaEvent>, val fromCache: Boolean)
 class CalendarRepository(context: Context) {
     private val prefs = context.getSharedPreferences("hud", Context.MODE_PRIVATE)
 
-    suspend fun fetch(): Agenda = withContext(Dispatchers.IO) {
+    /** source: api | rokid | both. Rokid entries come from the phone via the assist server. */
+    suspend fun fetch(source: String, rokid: List<RokidSchedule>, maxEvents: Int): Agenda = withContext(Dispatchers.IO) {
+        val now = Date()
+        val rokidEvents = if (source == "api") emptyList() else rokid
+            .filter { it.scheduleTime > now.time - 60 * 60 * 1000 }
+            .map { AgendaEvent(it.title, Date(it.scheduleTime), allDay = false) }
+        if (source == "rokid") return@withContext Agenda(order(rokidEvents, maxEvents), fromCache = false)
         try {
-            val body = HudApi.get("/get-calendar?limit=${Config.MAX_EVENTS * 2}")
+            val body = HudApi.get("/get-calendar?limit=${maxEvents * 2}")
             prefs.edit().putString(KEY_CACHE, body).apply()
-            Agenda(parse(body), fromCache = false)
+            Agenda(order(parse(body) + rokidEvents, maxEvents), fromCache = false)
         } catch (e: Exception) {
             Log.w(TAG, "calendar unavailable, using cache: ${e.message}")
             val cached = prefs.getString(KEY_CACHE, null)
-            Agenda(if (cached != null) parse(cached) else emptyList(), fromCache = true)
+            Agenda(order((if (cached != null) parse(cached) else emptyList()) + rokidEvents, maxEvents), fromCache = true)
         }
     }
 
-    /** All-day events first (like Rokid), then timed events by start; capped to MAX_EVENTS. */
+    private fun order(events: List<AgendaEvent>, max: Int): List<AgendaEvent> =
+        (events.filter { it.allDay }.sortedBy { it.start } + events.filter { !it.allDay }.sortedBy { it.start })
+            .distinctBy { it.title to it.start.time / 60000 }.take(max)
+
     private fun parse(body: String): List<AgendaEvent> {
         val arr: JSONArray = JSONObject(body).getJSONArray("events")
         val now = Date()
@@ -49,9 +58,7 @@ class CalendarRepository(context: Context) {
             if (end.before(now)) return@mapNotNull null
             AgendaEvent(o.getString("title"), start, o.optBoolean("all_day", false))
         }
-        return (events.filter { it.allDay }.sortedBy { it.start } +
-                events.filter { !it.allDay }.sortedBy { it.start })
-            .take(Config.MAX_EVENTS)
+        return events
     }
 
     /** Accepts 2030-01-01T09:00:00Z, +10:00 or +1000 offsets (API 28-safe, no java.time). */

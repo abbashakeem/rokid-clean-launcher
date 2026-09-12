@@ -12,7 +12,15 @@ data class Weather(
     val condition: String,
     val iconCode: String,   // OpenWeatherMap code such as 04d
     val isMock: Boolean,
+    val tempMin: Int? = null,
+    val tempMax: Int? = null,
+    val sunriseMs: Long = 0,
+    val sunsetMs: Long = 0,
+    val fromRokid: Boolean = false,
 ) {
+    /** Third line: feels-like for the backend source, the day's range for the Rokid feed. */
+    fun thirdLine(): String = if (fromRokid && tempMin != null && tempMax != null) "$tempMin° ~ $tempMax°" else "Feels like $feelsLike°"
+
     /** Map OWM icon codes to bundled vector drawables. */
     val iconRes: Int
         get() {
@@ -31,6 +39,24 @@ data class Weather(
 }
 
 class WeatherRepository {
+    /** Rokid weatherId table (from its launcher) collapsed to our icon codes and labels. */
+    fun fromRokid(w: RokidWeather): Weather {
+        val id = w.weatherId
+        val (code, label) = when (id) {
+            in 1..5 -> "01d" to "Clear"
+            6, 7 -> "02d" to "Mostly clear"
+            in 8..12, in 80..82 -> "03d" to "Cloudy"
+            13, 14, 36, 85 -> "04d" to "Overcast"
+            in 15..23, in 51..57, in 66..70, 78, 86, in 91..93 -> "10d" to "Rain"
+            in 37..45, in 87..90 -> "11d" to "Thunderstorm"
+            in 46..50, in 58..63, in 71..77, 24, 25, 94 -> "13d" to "Snow"
+            in 26..35, 79, 83, 84 -> "50d" to "Fog"
+            else -> "03d" to "Weather"
+        }
+        return Weather(city = w.address, temp = w.temp.toInt(), feelsLike = w.temp.toInt(), condition = label, iconCode = code,
+            isMock = false, tempMin = w.tempLow.toInt(), tempMax = w.tempHigh.toInt(), fromRokid = true)
+    }
+
     private val mock = listOf(
         Weather("Melbourne", 22, 21, "Clear", "01d", true),
         Weather("Melbourne", 18, 16, "Clouds", "04d", true),
@@ -48,11 +74,22 @@ class WeatherRepository {
                 condition = j.optString("description", j.optString("condition", "")),
                 iconCode = j.optString("icon", "01d"),
                 isMock = false,
+                tempMin = j.optInt("temp_min", j.getInt("temp")),
+                tempMax = j.optInt("temp_max", j.getInt("temp")),
+                sunriseMs = parseIsoMs(j.optString("sunrise")),
+                sunsetMs = parseIsoMs(j.optString("sunset")),
             )
         } catch (e: Exception) {
             Log.w(TAG, "weather unavailable, using mock: ${e.message}")
             mock[mockIndex++ % mock.size]
         }
+    }
+
+    private fun parseIsoMs(s: String): Long {
+        if (s.isBlank()) return 0
+        val n = s.replace("Z", "+0000").replace(Regex("([+-]\\d{2}):(\\d{2})$"), "$1$2").replace(Regex("\\.\\d+"), "")
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", java.util.Locale.US)
+        return try { fmt.parse(n)?.time ?: 0 } catch (e: Exception) { 0 }
     }
 
     companion object { private const val TAG = "Weather" }
