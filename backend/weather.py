@@ -39,9 +39,14 @@ async def get_weather() -> WeatherResponse:
     condition = w.get("main", "Unknown")
     description = w.get("description", condition).capitalize()
     unit = "°F" if settings.units == "imperial" else "°C"
+    sys_ = data.get("sys", {})
     _cache = WeatherResponse(
         temp=temp,
         feels_like=feels,
+        temp_min=round(data["main"].get("temp_min", temp)),
+        temp_max=round(data["main"].get("temp_max", temp)),
+        sunrise=datetime.fromtimestamp(sys_.get("sunrise", 0), tz=timezone.utc),
+        sunset=datetime.fromtimestamp(sys_.get("sunset", 0), tz=timezone.utc),
         condition=condition,
         description=description,
         icon=w.get("icon", "01d"),
