@@ -11,13 +11,15 @@ request (refresh_if_stale) instead of a background timer.
 Every endpoint except /health requires header  X-API-KEY: <API_KEY>.
 """
 import asyncio
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from config import settings
 from models import CalendarResponse, Event, WeatherResponse
@@ -101,6 +103,30 @@ async def sync_now():
     return {"synced": n}
 
 
+DIST = Path(__file__).parent / "dist"
+
+
+@app.get("/app-version", dependencies=[Depends(verify_key)])
+async def app_version():
+    """Metadata for the launcher's self-update. Written by scripts/publish-update.sh."""
+    meta = DIST / "version.json"
+    if not meta.exists():
+        return {"version_code": 0, "version_name": "", "available": False}
+    data = json.loads(meta.read_text())
+    data["available"] = (DIST / data.get("file", "app.apk")).exists()
+    return data
+
+
+@app.get("/app.apk", dependencies=[Depends(verify_key)])
+async def app_apk():
+    meta = DIST / "version.json"
+    name = json.loads(meta.read_text()).get("file", "app.apk") if meta.exists() else "app.apk"
+    apk = DIST / name
+    if not apk.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no build published")
+    return FileResponse(apk, media_type="application/vnd.android.package-archive", filename="hud-launcher.apk")
+
+
 @app.get("/config", response_model=LauncherSettings, dependencies=[Depends(verify_key)])
 async def get_config():
     """Launcher settings; the glasses poll this every few minutes and on resume."""
@@ -156,6 +182,7 @@ SETTINGS_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="
  <label>Weather <select name="weather_source"><option value="api">Backend (OpenWeatherMap)</option><option value="rokid">Rokid app (phone)</option></select></label>
  <label>Agenda rows <input type="number" name="max_events" min="1" max="6"></label>
  <label>Scroll long titles <input type="checkbox" name="marquee_titles"></label>
+ <label>Auto-update the launcher <input type="checkbox" name="auto_update"></label>
 </fieldset>
 <fieldset><legend>Display</legend>
  <label>Display off after idle (s) <input type="number" name="idle_off_seconds" min="2" max="60"></label>
@@ -164,6 +191,7 @@ SETTINGS_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="
  <label>Brightness, night (10–255) <input type="number" name="brightness_night" min="10" max="255"></label>
 </fieldset>
 <fieldset><legend>Navigation card</legend>
+ <label>Tint the phone's map to HUD green <input type="checkbox" name="nav_map_tint"></label>
  <label>Mode <select name="nav_card"><option value="smart">Smart: wake for turns, then sleep</option><option value="always">Always on while navigating</option><option value="off">Off</option></select></label>
  <label>Sleep after a turn (s) <input type="number" name="nav_off_seconds" min="3" max="120"></label>
  <label>Wake when turn within (m) <input type="number" name="nav_wake_distance_m" min="50" max="2000"></label>

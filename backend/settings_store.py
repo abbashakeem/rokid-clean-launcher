@@ -30,6 +30,8 @@ class LauncherSettings(BaseModel):
     nav_take_over: bool = True                                          # bring the HUD to the front when a route starts
     # misc
     marquee_titles: bool = True
+    nav_map_tint: bool = True                                           # recolour the phone's map image to the HUD green ramp
+    auto_update: bool = True                                            # check the backend for a newer launcher build
 
 
 class SettingsStore:

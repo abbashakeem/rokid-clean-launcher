@@ -24,8 +24,8 @@ android {
         applicationId = "com.abbas.hudlauncher"
         minSdk = 28          // Rokid Glasses report API 32 (Android 12)
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2          // bump with scripts/publish-update.sh
+        versionName = "0.2"
 
         buildConfigField("String", "HUD_BASE_URL", "\"${prop("HUD_BASE_URL", "http://10.0.2.2:8000")}\"")
         buildConfigField("String", "HUD_API_KEY", "\"${prop("HUD_API_KEY", "change-me")}\"")

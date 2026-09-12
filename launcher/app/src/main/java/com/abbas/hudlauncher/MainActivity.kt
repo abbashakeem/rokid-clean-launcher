@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appPicker: AppPicker
     private lateinit var scenes: RokidScenes
     private lateinit var configRepo: ConfigRepository
+    private lateinit var updates: UpdateChecker
     private val cfg: LauncherConfig get() = configRepo.current
     private var configJob: Job? = null
     private var lastWeather: Weather? = null
@@ -174,8 +175,12 @@ class MainActivity : AppCompatActivity() {
         scenes.onNavMap = { mode, png -> onNavMap(mode, png) }
         scenes.onPhoneLink = { renderPhoneLink() }
         scenes.onMessages = { if (messagesPanel.visibility == View.VISIBLE) renderMessages(it) }
+        updates = UpdateChecker(this)
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
-            findViewById(R.id.app_picker_title), scenes)
+            findViewById(R.id.app_picker_title), scenes, extraEntries = {
+                // an update entry appears at the front of the carousel only when one is downloaded
+                updates.pending?.let { u -> listOf(AppEntry("Update to ${u.versionName}", R.drawable.ic_update) { updates.install() }) } ?: emptyList()
+            })
         musicPill = findViewById(R.id.music_pill)
         musicState = findViewById(R.id.music_state)
         musicText = findViewById(R.id.music_text)
@@ -213,6 +218,7 @@ class MainActivity : AppCompatActivity() {
                 val before = cfg
                 val after = configRepo.refresh()
                 if (after != before) applyConfig()
+                if (after.autoUpdate && updates.pending == null) updates.check()
                 delay(Config.CONFIG_REFRESH_MS)
             }
         }
@@ -603,6 +609,7 @@ class MainActivity : AppCompatActivity() {
         if (cfg.navCard == "off") return
         if (!navCardWanted) showNavCard(true)
         try {
+            navMap.colorFilter = if (cfg.navMapTint) MapTint.colorFilter else null
             navMap.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size))
             navMap.visibility = View.VISIBLE
         } catch (e: Exception) { Log.w(TAG, "bad map image: ${e.message}") }

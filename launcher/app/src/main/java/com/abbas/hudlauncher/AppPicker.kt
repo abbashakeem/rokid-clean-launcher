@@ -24,13 +24,14 @@ class AppPicker(
     private val strip: LinearLayout,
     private val label: TextView,
     private val scenes: RokidScenes,
+    private val extraEntries: () -> List<AppEntry> = { emptyList() },
 ) {
-    private val apps: List<AppEntry> = buildEntries()
+    private var apps: List<AppEntry> = emptyList()
     private var selected = 0
 
     val isOpen: Boolean get() = panel.visibility == View.VISIBLE
 
-    fun open() { selected = 0; panel.visibility = View.VISIBLE; render() }
+    fun open() { apps = extraEntries() + buildEntries(); selected = 0; panel.visibility = View.VISIBLE; render() }
     fun close() { panel.visibility = View.GONE }
 
     fun move(delta: Int) {

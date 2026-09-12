@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- self-update: adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Package visibility (Android 11+): lets the app picker see other launchable apps -->
     <queries>
@@ -53,6 +55,14 @@
 
         <!-- Grants access to media sessions for the now-playing pill:
              adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+
         <service
             android:name=".HudNotificationListener"
             android:exported="true"

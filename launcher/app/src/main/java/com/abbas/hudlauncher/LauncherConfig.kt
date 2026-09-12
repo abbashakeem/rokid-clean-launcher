@@ -22,6 +22,8 @@ data class LauncherConfig(
     val navMuteVoice: Boolean = false,
     val navVolumeNudge: Boolean = false,
     val navTakeOver: Boolean = true,
+    val navMapTint: Boolean = true,
+    val autoUpdate: Boolean = true,
 ) {
     companion object {
         fun fromJson(j: JSONObject) = LauncherConfig(
@@ -39,6 +41,8 @@ data class LauncherConfig(
             navMuteVoice = j.optBoolean("nav_mute_voice", false),
             navVolumeNudge = j.optBoolean("nav_volume_nudge", false),
             navTakeOver = j.optBoolean("nav_take_over", true),
+            navMapTint = j.optBoolean("nav_map_tint", true),
+            autoUpdate = j.optBoolean("auto_update", true),
         )
     }
 }

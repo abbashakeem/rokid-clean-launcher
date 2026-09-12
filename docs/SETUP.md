@@ -238,7 +238,7 @@ Grant two permissions once over USB. The first lets the brightness slider write 
 the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT && adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow
 ```
 
 The last two feed the return watcher. Rokid's assist server force-stops the foreground third-party app
@@ -300,6 +300,16 @@ instruction, a workaround for iOS leaving music ducked after a voice prompt. Sim
 ```bash
 adb shell "am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road 'Chapel St' --ei remain 4200 --ei secs 780 --ei speed 42"
 ```
+
+### Self-update over Wi-Fi
+
+`./scripts/publish-update.sh "what changed"` bumps the version, builds, copies the APK to
+`backend/dist/`, writes `version.json` and pushes; Render redeploys and the glasses see it within
+5 minutes. The launcher downloads and checksums it in the background, then an "Update to 0.x" entry
+appears at the front of the app picker; tapping it hands the APK to the system installer, which asks
+for one confirmation (we are not a privileged installer, so that dialog cannot be skipped). Needs
+the install grant in the permissions command above, and the debug keystore must stay the same or the
+update will not install over the existing app.
 
 ### Now-playing pill
 
