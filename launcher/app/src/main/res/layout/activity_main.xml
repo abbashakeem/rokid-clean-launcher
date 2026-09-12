@@ -1,60 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
+<!-- Rokid Glasses: 480x640 px @240dpi = 320x427dp, portrait. Single stacked column. -->
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/hud_black"
     android:keepScreenOn="true"
-    android:padding="24dp">
+    android:orientation="vertical"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="28dp"
+    android:paddingBottom="20dp">
 
-    <!-- Left column: clock + weather -->
     <TextView
         android:id="@+id/clock"
         style="@style/HudText.Clock"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="12:00 PM"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:text="12:00 PM" />
 
     <TextView
         android:id="@+id/weather"
         style="@style/HudText.Weather"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:text="@string/weather_loading"
-        app:layout_constraintStart_toStartOf="@id/clock"
-        app:layout_constraintTop_toBottomOf="@id/clock" />
+        android:layout_marginTop="2dp"
+        android:text="@string/weather_loading" />
 
-    <!-- Right column: date + up to three events -->
-    <LinearLayout
-        android:id="@+id/agenda"
-        android:layout_width="0dp"
+    <TextView
+        android:id="@+id/date"
+        style="@style/HudText.Date"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="32dp"
-        android:orientation="vertical"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@id/clock"
-        app:layout_constraintTop_toTopOf="@id/clock"
-        app:layout_constraintWidth_percent="0.45">
+        android:layout_marginTop="28dp"
+        android:text="Mon, 1 Jan" />
 
-        <TextView
-            android:id="@+id/date"
-            style="@style/HudText.Date"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Mon, 1 Jan" />
-
-        <TextView android:id="@+id/event1" style="@style/HudText.Event"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp" android:text="@string/no_events" />
-        <TextView android:id="@+id/event2" style="@style/HudText.Event"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:visibility="gone" />
-        <TextView android:id="@+id/event3" style="@style/HudText.Event"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:visibility="gone" />
-    </LinearLayout>
-</androidx.constraintlayout.widget.ConstraintLayout>
+    <TextView android:id="@+id/event1" style="@style/HudText.Event"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" android:text="@string/no_events" />
+    <TextView android:id="@+id/event2" style="@style/HudText.Event"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone" />
+    <TextView android:id="@+id/event3" style="@style/HudText.Event"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:visibility="gone" />
+</LinearLayout>

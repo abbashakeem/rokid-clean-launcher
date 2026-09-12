@@ -18,7 +18,7 @@ android {
 
     defaultConfig {
         applicationId = "com.abbas.hudlauncher"
-        minSdk = 28          // adjust after `adb shell getprop ro.build.version.sdk`
+        minSdk = 28          // Rokid Glasses report API 32 (Android 12)
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
