@@ -77,6 +77,29 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@id/wx_feels" />
 
+        <!-- Status: battery bottom-left, Wi-Fi bottom-right, on the bar's centre line -->
+        <LinearLayout android:id="@+id/status_left"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="@id/bar"
+            app:layout_constraintBottom_toBottomOf="@id/bar">
+            <com.abbas.hudlauncher.BatteryView android:id="@+id/battery_icon"
+                android:layout_width="20dp" android:layout_height="10dp" />
+            <TextView android:id="@+id/battery_text" style="@style/HudText.Small"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="5dp" android:text="100%" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/status_right"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/bar"
+            app:layout_constraintBottom_toBottomOf="@id/bar">
+            <com.abbas.hudlauncher.WifiView android:id="@+id/wifi_icon"
+                android:layout_width="18dp" android:layout_height="13dp" />
+        </LinearLayout>
+
         <!-- Bottom bar: brightness · home · apps -->
         <LinearLayout android:id="@+id/bar"
             android:layout_width="wrap_content" android:layout_height="wrap_content"

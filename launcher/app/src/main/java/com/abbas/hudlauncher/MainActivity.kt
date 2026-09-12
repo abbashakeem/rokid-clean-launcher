@@ -1,7 +1,14 @@
 package com.abbas.hudlauncher
 
 import android.content.ComponentName
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -51,6 +58,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var brightness: BrightnessController
     private lateinit var sleeper: DisplaySleeper
     private lateinit var appPicker: AppPicker
+    private lateinit var batteryIcon: BatteryView
+    private lateinit var batteryText: TextView
+    private lateinit var wifiIcon: WifiView
+    private var statusJob: Job? = null
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+            val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            if (level >= 0) {
+                val pct = level * 100 / scale
+                batteryIcon.level = pct
+                batteryIcon.charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                batteryText.text = "$pct%"
+            }
+        }
+    }
     private lateinit var headerViews: List<View>
     private var weatherJob: Job? = null
     private var calendarJob: Job? = null
@@ -74,6 +98,9 @@ class MainActivity : AppCompatActivity() {
         btnBrightness = findViewById(R.id.btn_brightness)
         btnHome = findViewById(R.id.btn_home)
         btnApps = findViewById(R.id.btn_apps)
+        batteryIcon = findViewById(R.id.battery_icon)
+        batteryText = findViewById(R.id.battery_text)
+        wifiIcon = findViewById(R.id.wifi_icon)
         brightnessPanel = findViewById(R.id.brightness_panel)
         brightnessFill = findViewById(R.id.brightness_fill)
         brightnessValue = findViewById(R.id.brightness_value)
@@ -108,6 +135,10 @@ class MainActivity : AppCompatActivity() {
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
+        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        statusJob = lifecycleScope.launch {
+            while (isActive) { updateWifi(); delay(Config.STATUS_REFRESH_MS) }
+        }
         weatherJob = lifecycleScope.launch {
             while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
         }
@@ -121,6 +152,18 @@ class MainActivity : AppCompatActivity() {
         ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel()
         sleeper.onPause()
         setSystemClickSounds(true)
+        try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
+        statusJob?.cancel()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun updateWifi() {
+        // networkId/SSID need location permission on API 29+, so check connectivity via the active network
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        val onWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        wifiIcon.level = if (!onWifi) -1 else WifiManager.calculateSignalLevel(wm.connectionInfo.rssi, 5).coerceIn(0, 4)
     }
 
     /** The tap sound comes from the system sound-effects pool, not our views, so toggle the setting. */
