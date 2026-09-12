@@ -234,6 +234,20 @@ If that is refused, launch the app from Rokid's app list instead. To go back to 
 adb uninstall com.abbas.hudlauncher
 ```
 
+Grant the brightness picker permission once (it writes the system brightness setting):
+
+```bash
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow
+```
+
+### Touchpad controls
+
+The temple touchpad sends D-pad keys. Swipe forward/back moves the focus ring between the three bottom
+buttons, tap selects. Left button opens the brightness slider (swipe to adjust, tap to close), middle
+refreshes weather and calendar, right opens Rokid's own launcher, from which its app list is reachable.
+Rokid's app picker and brightness page are pages inside its launcher activity, not separate apps, so
+they cannot be opened directly.
+
 Logs while it runs:
 
 ```bash

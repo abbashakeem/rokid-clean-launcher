@@ -7,5 +7,5 @@ object Config {
 
     const val WEATHER_REFRESH_MS = 10 * 60 * 1000L
     const val CALENDAR_REFRESH_MS = 5 * 60 * 1000L
-    const val MAX_EVENTS = 3
+    const val MAX_EVENTS = 4
 }

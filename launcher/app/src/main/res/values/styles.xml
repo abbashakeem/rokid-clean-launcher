@@ -10,38 +10,67 @@
         <item name="android:textColor">@color/hud_white</item>
     </style>
 
-    <!-- Shared shadow so text stays readable against bright real-world backgrounds -->
+    <!-- Base: white with a soft shadow for readability against the real world -->
     <style name="HudText">
         <item name="android:textColor">@color/hud_white</item>
         <item name="android:shadowColor">@color/hud_shadow</item>
-        <item name="android:shadowRadius">6</item>
+        <item name="android:shadowRadius">4</item>
         <item name="android:shadowDx">1</item>
         <item name="android:shadowDy">1</item>
-        <item name="android:fontFamily">sans-serif</item>
         <item name="android:includeFontPadding">false</item>
-    </style>
-
-    <style name="HudText.Clock">
-        <item name="android:textSize">54sp</item>
-        <item name="android:fontFamily">sans-serif-light</item>
-        <item name="android:letterSpacing">0.02</item>
-    </style>
-
-    <style name="HudText.Weather">
-        <item name="android:textSize">20sp</item>
-    </style>
-
-    <style name="HudText.Date">
-        <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/hud_dim</item>
-        <item name="android:textAllCaps">true</item>
-        <item name="android:letterSpacing">0.08</item>
-    </style>
-
-    <style name="HudText.Event">
-        <item name="android:textSize">17sp</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">end</item>
-        <item name="android:paddingTop">6dp</item>
+    </style>
+
+    <!-- Display typeface (Rajdhani) for clock, date and weather -->
+    <style name="HudText.Display">
+        <item name="android:fontFamily">@font/rajdhani_medium</item>
+    </style>
+    <style name="HudText.Display.Clock">
+        <item name="android:fontFamily">@font/rajdhani_semibold</item>
+        <item name="android:textSize">40sp</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+    <style name="HudText.Display.DateDay">
+        <item name="android:fontFamily">@font/rajdhani_semibold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:letterSpacing">0.08</item>
+    </style>
+    <style name="HudText.Display.DateNum">
+        <item name="android:textSize">17sp</item>
+    </style>
+    <style name="HudText.Display.City">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/hud_dim</item>
+    </style>
+    <style name="HudText.Display.Temp">
+        <item name="android:fontFamily">@font/rajdhani_semibold</item>
+        <item name="android:textSize">24sp</item>
+    </style>
+    <style name="HudText.Display.Condition">
+        <item name="android:textSize">11sp</item>
+    </style>
+    <style name="HudText.Display.Feels">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/hud_dim</item>
+    </style>
+
+    <!-- Agenda rows: match Rokid's ~12sp system sans -->
+    <style name="HudText.Event">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+    <style name="HudText.Event.Dim">
+        <item name="android:textColor">@color/hud_dim</item>
+    </style>
+
+    <style name="BarButton">
+        <item name="android:layout_width">36dp</item>
+        <item name="android:layout_height">30dp</item>
+        <item name="android:padding">5dp</item>
+        <item name="android:background">@drawable/bar_button_bg</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
     </style>
 </resources>

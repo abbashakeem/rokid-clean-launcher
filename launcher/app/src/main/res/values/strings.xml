@@ -1,6 +1,13 @@
 <resources>
     <string name="app_name">HUD Launcher</string>
-    <string name="weather_loading">--°  ·  loading</string>
+    <string name="weather_loading">--°</string>
     <string name="no_events">No upcoming events</string>
-    <string name="calendar_offline">calendar offline</string>
+    <string name="calendar_offline">Calendar offline</string>
+    <string name="all_day">All day</string>
+    <string name="feels_like">Feels like %1$d°</string>
+    <string name="btn_brightness">Brightness</string>
+    <string name="btn_home">Home</string>
+    <string name="btn_apps">Apps</string>
+    <string name="brightness_pct">%1$d%%</string>
+    <string name="brightness_no_permission">Grant once over USB: adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow</string>
 </resources>

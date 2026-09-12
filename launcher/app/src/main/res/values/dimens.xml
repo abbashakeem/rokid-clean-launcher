@@ -1,0 +1,11 @@
+<resources>
+    <!-- Rokid Glasses draw only inside a horizontal band of the 480x640 frame (rows 119-446 px @240dpi). -->
+    <dimen name="band_top">79dp</dimen>
+    <dimen name="band_height">218dp</dimen>
+    <dimen name="band_side">6dp</dimen>
+
+    <dimen name="col_day">34dp</dimen>
+    <dimen name="col_time">62dp</dimen>
+    <dimen name="row_gap">3dp</dimen>
+    <dimen name="bar_icon">24dp</dimen>
+</resources>
