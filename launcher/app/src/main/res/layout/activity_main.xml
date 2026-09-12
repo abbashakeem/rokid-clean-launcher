@@ -105,6 +105,26 @@
                 android:src="@drawable/ic_apps" android:contentDescription="@string/btn_apps" />
         </LinearLayout>
 
+        <!-- App picker: replaces agenda + bar while open -->
+        <LinearLayout android:id="@+id/app_picker"
+            android:layout_width="match_parent" android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical"
+            android:background="@color/hud_black"
+            android:visibility="gone"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/wx_feels"
+            app:layout_constraintBottom_toBottomOf="parent">
+            <TextView android:id="@+id/app_picker_title" style="@style/HudText.Event.Dim"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:paddingStart="6dp" android:text="@string/btn_apps" />
+            <LinearLayout android:id="@+id/app_rows"
+                android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+                android:layout_marginTop="2dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+
         <!-- Brightness picker overlay (hidden until the left button is pressed) -->
         <LinearLayout android:id="@+id/brightness_panel"
             android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -250,8 +250,9 @@ In the launcher: swipe moves the focus ring between the three bottom buttons, ta
 turns the display off (the same gesture Rokid's launcher uses). The display also turns off after 5 s idle;
 this uses the window's own user-activity timeout, so other apps keep the normal system timeout.
 Left button opens the brightness slider (swipe to adjust, tap to close), middle refreshes weather and
-calendar, right opens Rokid's launcher, from which its app list is one swipe away. Rokid's app picker
-and brightness page are pages inside its launcher activity, not separate apps, so they cannot be opened directly.
+calendar, right opens the built-in app picker (every launchable app on the glasses: swipe to move,
+tap to launch, double tap to close). Rokid's own app picker and brightness page are pages inside its
+launcher activity and cannot be opened from outside, which is why both are re-implemented here.
 
 The tap click sound comes from the system sound-effects pool, so the launcher switches
 `sound_effects_enabled` off while it is in front and back on when another app takes over.

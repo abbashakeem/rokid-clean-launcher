@@ -50,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var calendarRepo: CalendarRepository
     private lateinit var brightness: BrightnessController
     private lateinit var sleeper: DisplaySleeper
+    private lateinit var appPicker: AppPicker
     private var weatherJob: Job? = null
     private var calendarJob: Job? = null
 
@@ -79,6 +80,8 @@ class MainActivity : AppCompatActivity() {
         calendarRepo = CalendarRepository(this)
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
+        appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
+            findViewById(R.id.app_picker_title), visibleRows = 5)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
         listOf(btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
@@ -90,13 +93,14 @@ class MainActivity : AppCompatActivity() {
 
         btnBrightness.setOnClickListener { showBrightness() }
         btnHome.setOnClickListener { refreshNow() }
-        btnApps.setOnClickListener { openRokidLauncher() }
+        btnApps.setOnClickListener { openAppPicker() }
         btnHome.requestFocus()
     }
 
     override fun onResume() {
         super.onResume()
         hideSystemBars()
+        if (appPicker.isOpen) closeAppPicker()
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
@@ -179,6 +183,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun openAppPicker() {
+        agendaView.visibility = View.INVISIBLE
+        barView.visibility = View.INVISIBLE
+        appPicker.open()
+    }
+
+    private fun closeAppPicker() {
+        appPicker.close()
+        agendaView.visibility = View.VISIBLE
+        barView.visibility = View.VISIBLE
+        btnApps.requestFocus()
+    }
+
     private fun showBrightness() {
         if (!brightness.canWrite) {
             Toast.makeText(this, R.string.brightness_no_permission, Toast.LENGTH_LONG).show()
@@ -222,6 +239,15 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "keyDown $keyCode panel=${brightnessPanel.visibility == View.VISIBLE}")
         sleeper.touch()
         val panelOpen = brightnessPanel.visibility == View.VISIBLE
+        if (appPicker.isOpen) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_NOTIFICATION -> return true
+                KeyEvent.KEYCODE_BACK -> { closeAppPicker(); return true }          // double tap = back to home
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> { appPicker.launchSelected(); return true }
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> { onSwipe(+1, false); return true }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> { onSwipe(-1, false); return true }
+            }
+        }
         when (keyCode) {
             KeyEvent.KEYCODE_NOTIFICATION -> return true                   // touch start: only wakes/resets idle
             KeyEvent.KEYCODE_BACK -> { sleeper.sleepNow(); return true }   // double tap = display off
@@ -245,7 +271,9 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         if (now - lastSwipeAt < Config.SWIPE_DEBOUNCE_MS) return
         lastSwipeAt = now
-        if (panelOpen) {
+        if (appPicker.isOpen) {
+            appPicker.move(direction)
+        } else if (panelOpen) {
             adjustBrightness(direction * BrightnessController.STEP)
         } else {
             val buttons = listOf(btnBrightness, btnHome, btnApps)
