@@ -40,12 +40,12 @@
         <item name="android:textSize">17sp</item>
     </style>
     <style name="HudText.Display.City">
-        <item name="android:textSize">13sp</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:textColor">@color/hud_dim</item>
     </style>
     <style name="HudText.Display.Temp">
         <item name="android:fontFamily">@font/rajdhani_semibold</item>
-        <item name="android:textSize">24sp</item>
+        <item name="android:textSize">20sp</item>
     </style>
     <style name="HudText.Display.Condition">
         <item name="android:textSize">11sp</item>
@@ -58,7 +58,7 @@
     <!-- Agenda rows: match Rokid's ~12sp system sans -->
     <style name="HudText.Event">
         <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">12sp</item>
+        <item name="android:textSize">11sp</item>
     </style>
     <style name="HudText.Event.Dim">
         <item name="android:textColor">@color/hud_dim</item>
