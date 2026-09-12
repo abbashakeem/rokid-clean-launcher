@@ -52,6 +52,8 @@ class RokidScenes(private val context: Context) {
     var onNavStart: ((destination: String) -> Unit)? = null
     var onNavUpdate: ((NavUpdate) -> Unit)? = null
     var onNavStop: (() -> Unit)? = null
+    /** Map image from the phone (Nav_Map_Data); mode "1" = route overview, "0" = follow-car. */
+    var onNavMap: ((mode: String, png: ByteArray) -> Unit)? = null
 
     var weather: RokidWeather? = null; private set
     var schedule: List<RokidSchedule> = emptyList(); private set
@@ -113,6 +115,13 @@ class RokidScenes(private val context: Context) {
     fun openScene(sceneKey: String) {
         val data = JSONObject().put("sceneKey", sceneKey).put("useTips", true).put("aiAssist", false)
         val msg = JSONObject().put("type", CMD_OPEN_SCENE).put("data", data).toString()
+        if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
+    }
+
+    /** Send a navigation sub-command to the phone, e.g. sendNav("Nav_SetShowMode", {"mode":"0"}). */
+    fun sendNav(subCmd: String, data: JSONObject) {
+        val payload = JSONObject().put("key", "Nav").put("cmd", subCmd).put("data", data.toString())
+        val msg = JSONObject().put("type", CMD_PHONE_GATT_SEND).put("data", payload).toString()
         if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
     }
 
@@ -193,6 +202,9 @@ class RokidScenes(private val context: Context) {
             when (p.optString("subCmd")) {
                 "Nav_Start" -> { navActive = true; onNavStart?.invoke(JSONObject(d).optString("destination")) }
                 "Nav_Stop" -> { navActive = false; onNavStop?.invoke() }
+                "Nav_Map_Data" -> {
+                    if (bytes != null && bytes.size > 16) onNavMap?.invoke(JSONObject(d).optString("mode", "0"), bytes)
+                }
                 "Nav_UpdateInfo" -> {
                     navActive = true
                     val u = JSONObject(d)
@@ -222,6 +234,7 @@ class RokidScenes(private val context: Context) {
         private const val TRANSACTION_CONTROL_MSG_JSON = 3
         private const val CMD_OPEN_SCENE = "cmd_open_scene_with_ignore_tips"
         private const val CMD_GET_BLE_STATUS = "cmd_get_ble_status"
+        private const val CMD_PHONE_GATT_SEND = "cmd_phone_gatt_send_data"
         /** Scene opening keys off the caller name; Rokid's launcher identifies as itself. */
         private const val CALLER_PKG = "com.rokid.os.sprite.launcher"
         private const val MAX_MESSAGES = 5

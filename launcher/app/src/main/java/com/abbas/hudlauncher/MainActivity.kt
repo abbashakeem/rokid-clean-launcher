@@ -75,6 +75,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navDistance: TextView
     private lateinit var navRoad: TextView
     private lateinit var navSummary: TextView
+    private lateinit var navMap: ImageView
+    private lateinit var navClock: TextView
+    private lateinit var navAmPm: TextView
+    private lateinit var navDate: TextView
+    private lateinit var navMuted: View
+    private lateinit var navMutedText: View
+    private var navSavedVolume = -1
     private var navLastStepKey: String? = null
     private var navHolding = false
     private val navHandler = Handler(Looper.getMainLooper())
@@ -145,12 +152,19 @@ class MainActivity : AppCompatActivity() {
         navDistance = findViewById(R.id.nav_distance)
         navRoad = findViewById(R.id.nav_road)
         navSummary = findViewById(R.id.nav_summary)
+        navMap = findViewById(R.id.nav_map)
+        navClock = findViewById(R.id.nav_clock)
+        navAmPm = findViewById(R.id.nav_ampm)
+        navDate = findViewById(R.id.nav_date)
+        navMuted = findViewById(R.id.nav_muted)
+        navMutedText = findViewById(R.id.nav_muted_text)
         scenes = RokidScenes(this)
         scenes.onWeather = { if (cfg.weatherSource == "rokid") renderWeather(weatherRepo.fromRokid(it)) }
         scenes.onSchedule = { if (cfg.calendarSource != "api") lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, it, cfg.maxEvents)) } }
         scenes.onNavStart = { onNavStart(it) }
         scenes.onNavUpdate = { onNavUpdate(it) }
         scenes.onNavStop = { onNavStop() }
+        scenes.onNavMap = { mode, png -> onNavMap(mode, png) }
         scenes.onPhoneLink = { renderPhoneLink() }
         scenes.onMessages = { if (messagesPanel.visibility == View.VISIBLE) renderMessages(it) }
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
@@ -171,6 +185,9 @@ class MainActivity : AppCompatActivity() {
             clockView.text = face.time
             amPmView.text = face.amPm
             dateStrip.text = face.dateStrip
+            navClock.text = face.time
+            navAmPm.text = face.amPm
+            navDate.text = face.dateStrip
         }
 
         btnMessages.setOnClickListener { openMessages() }
@@ -310,6 +327,7 @@ class MainActivity : AppCompatActivity() {
         applyAutoDim()
         lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)) }
         if (cfg.navCard == "off") onNavStop()
+        if (scenes.navActive && navCard.visibility == View.VISIBLE) { if (cfg.navMuteVoice) applyNavMute(true) else applyNavMute(false) }
     }
 
     /** Auto-dim: day/night panel brightness from the backend weather's sunrise/sunset. */
@@ -526,6 +544,7 @@ class MainActivity : AppCompatActivity() {
             when (i.getStringExtra("cmd")) {
                 "stop" -> onNavStop()
                 "start" -> onNavStart(i.getStringExtra("road") ?: "Destination")
+                "map" -> i.getStringExtra("map64")?.let { onNavMap(i.getStringExtra("mode") ?: "0", android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }
                 else -> onNavUpdate(NavUpdate(i.getIntExtra("icon", 9), null, i.getStringExtra("road") ?: "", "",
                     i.getIntExtra("step", 300), i.getIntExtra("remain", 5000), i.getIntExtra("secs", 900), i.getIntExtra("speed", 40)))
             }
@@ -538,8 +557,35 @@ class MainActivity : AppCompatActivity() {
         navRoad.text = destination
         navDistance.text = ""
         navSummary.text = ""
+        navMap.visibility = View.GONE
         showNavCard(true)
+        applyNavMute(true)
         wakeForNav()
+    }
+
+    private fun onNavMap(mode: String, png: ByteArray) {
+        if (cfg.navCard == "off") return
+        if (navCard.visibility != View.VISIBLE) showNavCard(true)
+        try {
+            navMap.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size))
+            navMap.visibility = View.VISIBLE
+        } catch (e: Exception) { Log.w(TAG, "bad map image: ${e.message}") }
+    }
+
+    /** The guidance voice is generated on the phone and streamed over Bluetooth; mute the glasses' media stream for the route. */
+    private fun applyNavMute(navOn: Boolean) {
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        try {
+            if (navOn && cfg.navMuteVoice) {
+                if (navSavedVolume < 0) navSavedVolume = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
+                navMuted.visibility = View.VISIBLE; navMutedText.visibility = View.VISIBLE
+            } else if (navSavedVolume >= 0) {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, navSavedVolume, 0)
+                navSavedVolume = -1
+                navMuted.visibility = View.GONE; navMutedText.visibility = View.GONE
+            }
+        } catch (e: Exception) { Log.w(TAG, "volume: ${e.message}") }
     }
 
     private fun onNavUpdate(u: NavUpdate) {
@@ -568,6 +614,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNavStop() {
+        applyNavMute(false)
         showNavCard(false)
         navHandler.removeCallbacks(navSleepRunnable)
         if (navHolding) { navHolding = false; sleeper.release() }
@@ -584,6 +631,7 @@ class MainActivity : AppCompatActivity() {
     private fun showNavCard(show: Boolean) {
         navCard.visibility = if (show) View.VISIBLE else View.GONE
         headerViews.forEach { it.visibility = if (show) View.INVISIBLE else View.VISIBLE }
+        agendaView.visibility = if (show) View.INVISIBLE else View.VISIBLE
     }
 
     private fun formatDistance(m: Int): String = if (m >= 1000) String.format(java.util.Locale.US, "%.1f km", m / 1000f) else "$m m"
