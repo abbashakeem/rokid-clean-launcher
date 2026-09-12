@@ -120,10 +120,22 @@ class RokidScenes(private val context: Context) {
         if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
     }
 
-    /** Send a navigation sub-command to the phone, e.g. sendNav("Nav_SetShowMode", {"mode":"0"}). */
-    fun sendNav(subCmd: String, data: JSONObject) {
-        val payload = JSONObject().put("key", "Nav").put("cmd", subCmd).put("data", data.toString())
+    /**
+     * Send a message to the phone app through the server's GATT link. Rokid's GattSendMessage is
+     * {cmd, key, data}: cmd = channel ("Sys", "Nav"), key = sub-command, data = json string.
+     */
+    fun sendGatt(channel: String, key: String, data: String = "") {
+        val payload = JSONObject().put("cmd", channel).put("key", key).put("data", data)
         val msg = JSONObject().put("type", CMD_PHONE_GATT_SEND).put("data", payload).toString()
+        if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
+    }
+
+    fun sendNav(subCmd: String, data: JSONObject) = sendGatt("Nav", subCmd, data.toString())
+
+    /** Ask the phone for weather and the schedule list (the phone only pushes them on request or on its own schedule). */
+    fun requestPhoneData() {
+        sendGatt("Sys", "Weather_GetData")
+        val msg = JSONObject().put("type", CMD_GET_SCHEDULE).toString()
         if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
     }
 
@@ -140,6 +152,7 @@ class RokidScenes(private val context: Context) {
         finally { req.recycle(); reply.recycle() }
         // ask for the current phone-app link state; later changes arrive as cmd_bluetooth_gatt_status
         send(JSONObject().put("type", CMD_GET_BLE_STATUS).toString())
+        requestPhoneData()
     }
 
     private fun send(json: String) {
@@ -166,13 +179,17 @@ class RokidScenes(private val context: Context) {
                     onPhoneLink?.invoke(phoneLinked)
                 }
                 "cmd_bluetooth_gatt_normal_result" -> {
+                    // gatt normal result: {"cmd":"Sys","caps0":"<sub-command>","caps1":<payload>,"caps2":...}
                     val d = JSONObject(o.optString("data"))
-                    when (d.optString("cmd")) {
+                    val sub = d.optString("caps0").ifBlank { d.optString("cmd") }
+                    Log.d(TAG, "gatt normal: $sub")
+                    when (sub) {
                         "Weather_SendData" -> {
                             val w = JSONObject(d.optString("caps1"))
                             weather = RokidWeather(w.optString("address"), w.optDouble("temp", 0.0).toFloat(),
                                 w.optDouble("tempHigh", 0.0).toFloat(), w.optDouble("tempLow", 0.0).toFloat(),
                                 w.optInt("weatherId", 0), System.currentTimeMillis())
+                            Log.d(TAG, "rokid weather: $weather")
                             weather?.let { onWeather?.invoke(it) }
                         }
                         "Ntf_ResetScheduleList" -> {
@@ -238,6 +255,7 @@ class RokidScenes(private val context: Context) {
         private const val CMD_OPEN_SCENE = "cmd_open_scene_with_ignore_tips"
         private const val CMD_GET_BLE_STATUS = "cmd_get_ble_status"
         private const val CMD_PHONE_GATT_SEND = "cmd_phone_gatt_send_data"
+        private const val CMD_GET_SCHEDULE = "cmd_get_schedule"
         /** Scene opening keys off the caller name; Rokid's launcher identifies as itself. */
         private const val CALLER_PKG = "com.rokid.os.sprite.launcher"
         private const val MAX_MESSAGES = 5

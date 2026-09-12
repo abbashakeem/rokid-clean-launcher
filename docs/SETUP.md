@@ -278,6 +278,13 @@ brightness, navigation card mode and timings, title marquee. The glasses poll `/
 on wake; the middle bar button forces a refresh. The Rokid calendar feed carries no calendar names, so it
 cannot be filtered per iPhone calendar; that is what the backend source is for.
 
+### Rokid phone feeds (weather, schedule)
+
+The phone only sends weather on request: the launcher sends `Weather_GetData` on the `Sys` channel
+(`cmd_phone_gatt_send_data` with `{cmd:"Sys", key:"Weather_GetData"}`) and `cmd_get_schedule` after
+registering and on each weather refresh. Replies come as `cmd_bluetooth_gatt_normal_result` whose
+`data` is `{"cmd":"Sys","caps0":"<sub-command>","caps1":<payload>}`; the sub-command is in `caps0`.
+
 ### Navigation card
 
 While the phone navigates through the Rokid app, the assist server streams `Nav_Start` / `Nav_UpdateInfo` /

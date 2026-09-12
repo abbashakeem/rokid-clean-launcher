@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navMutedText: View
     private var navSavedVolume = -1
     private var navLastStepKey: String? = null
+    private var navWokeNear = false
     private var navHolding = false
     private val navHandler = Handler(Looper.getMainLooper())
     private val navSleepRunnable = Runnable { navHolding = false; sleeper.release() }
@@ -215,8 +216,10 @@ class MainActivity : AppCompatActivity() {
                 delay(Config.CONFIG_REFRESH_MS)
             }
         }
-        if (appPicker.isOpen) closeAppPicker()
-        if (messagesPanel.visibility == View.VISIBLE) closeMessages()
+        if (appPicker.isOpen) appPicker.close()
+        messagesPanel.visibility = View.GONE
+        if (scenes.navActive && cfg.navCard != "off") navCardWanted = true
+        applyVisibility()
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
@@ -322,9 +325,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun refreshWeather() {
+        if (cfg.weatherSource == "rokid" || cfg.calendarSource != "api") scenes.requestPhoneData()
         val rokid = scenes.weather
-        if (cfg.weatherSource == "rokid" && rokid != null) renderWeather(weatherRepo.fromRokid(rokid))
-        else renderWeather(weatherRepo.fetch())
+        if (cfg.weatherSource == "rokid" && rokid != null) { renderWeather(weatherRepo.fromRokid(rokid)); return }
+        val api = weatherRepo.fetch()
+        // the phone's weather may have arrived while the backend request was in flight; it wins
+        val late = scenes.weather
+        if (cfg.weatherSource == "rokid" && late != null) renderWeather(weatherRepo.fromRokid(late)) else renderWeather(api)
     }
 
     /** Re-apply settings that are not read on the fly. */
@@ -332,8 +339,9 @@ class MainActivity : AppCompatActivity() {
         sleeper.idleMs = cfg.idleOffSeconds * 1000L
         sleeper.touch()
         applyAutoDim()
-        lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)) }
+        lifecycleScope.launch { refreshWeather(); renderAgenda(calendarRepo.fetch(cfg.calendarSource, scenes.schedule, cfg.maxEvents)) }
         if (cfg.navCard == "off") onNavStop()
+        applyVisibility()
         if (scenes.navActive && navCard.visibility == View.VISIBLE) { if (cfg.navMuteVoice) applyNavMute(true) else applyNavMute(false) }
     }
 
@@ -402,16 +410,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openMessages() {
-        headerViews.forEach { it.visibility = View.INVISIBLE }
-        agendaView.visibility = View.INVISIBLE
+        // during a route this button returns to the navigation card instead
+        if (scenes.navActive && cfg.navCard != "off") { navCardWanted = true; applyVisibility(); return }
         messagesPanel.visibility = View.VISIBLE
         renderMessages(scenes.messages.toList())
+        applyVisibility()
     }
 
     private fun closeMessages() {
         messagesPanel.visibility = View.GONE
-        headerViews.forEach { it.visibility = View.VISIBLE }
-        agendaView.visibility = View.VISIBLE
+        applyVisibility()
         btnMessages.requestFocus()
     }
 
@@ -434,18 +442,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * One place decides what shows: picker > messages > nav card > home. Avoids the overlay bugs
+     * you get when each panel restores the header on its own.
+     */
+    private var navCardWanted = false
+    private fun applyVisibility() {
+        val picker = appPicker.isOpen
+        val msgs = messagesPanel.visibility == View.VISIBLE
+        val nav = navCardWanted && !picker && !msgs
+        val home = !picker && !msgs && !nav
+        navCard.visibility = if (nav) View.VISIBLE else View.GONE
+        headerViews.forEach { it.visibility = if (home) View.VISIBLE else View.INVISIBLE }
+        agendaView.visibility = if (home) View.VISIBLE else View.INVISIBLE
+        // while a route is active the Messages button becomes "back to navigation"
+        val navActive = scenes.navActive && cfg.navCard != "off"
+        btnMessages.setImageResource(if (navActive) R.drawable.nav_straight else R.drawable.ic_messages)
+        btnMessages.contentDescription = getString(if (navActive) R.string.btn_navigation else R.string.btn_messages)
+    }
+
     /** Like Rokid's app page: header and agenda hidden, carousel centred, bar stays with Apps focused. */
     private fun openAppPicker() {
-        headerViews.forEach { it.visibility = View.INVISIBLE }
-        agendaView.visibility = View.INVISIBLE
         btnApps.requestFocus()
         appPicker.open()
+        applyVisibility()
     }
 
     private fun closeAppPicker() {
         appPicker.close()
-        headerViews.forEach { it.visibility = View.VISIBLE }
-        agendaView.visibility = View.VISIBLE
+        applyVisibility()
         btnApps.requestFocus()
     }
 
@@ -512,6 +537,7 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_BACK -> when {                                          // double tap
                 appPicker.isOpen -> closeAppPicker()
                 messagesPanel.visibility == View.VISIBLE -> closeMessages()
+                navCardWanted && navCard.visibility == View.VISIBLE -> { navCardWanted = false; applyVisibility() }
                 panelOpen -> hideBrightness()
                 else -> sleeper.sleepNow()
             }
@@ -575,7 +601,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun onNavMap(mode: String, png: ByteArray) {
         if (cfg.navCard == "off") return
-        if (navCard.visibility != View.VISIBLE) showNavCard(true)
+        if (!navCardWanted) showNavCard(true)
         try {
             navMap.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size))
             navMap.visibility = View.VISIBLE
@@ -616,7 +642,7 @@ class MainActivity : AppCompatActivity() {
     private fun onNavUpdate(u: NavUpdate) {
         Log.d(TAG, "nav update icon=${u.iconType} step=${u.stepRemainM} road=${u.nextRoadName} mode=${cfg.navCard}")
         if (cfg.navCard == "off") return
-        if (navCard.visibility != View.VISIBLE) showNavCard(true)
+        if (!navCardWanted) showNavCard(true)
         if (u.iconPng != null) {
             try { navIcon.setImageBitmap(android.graphics.BitmapFactory.decodeByteArray(u.iconPng, 0, u.iconPng.size)) } catch (_: Exception) { navIcon.setImageResource(navIconFor(u.iconType)) }
         } else navIcon.setImageResource(navIconFor(u.iconType))
@@ -626,15 +652,18 @@ class MainActivity : AppCompatActivity() {
         val mins = (u.routeRemainS + 59) / 60
         navSummary.text = "${formatDistance(u.routeRemainM)}  ·  ${if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"}  ·  ${u.speedKmh} km/h"
 
-        // Smart mode: wake for a new instruction or when the turn is close; sleep navOffSeconds after the step changes.
+        // Smart mode: wake once for a new instruction, once more when the turn comes within range,
+        // then sleep navOffSeconds later. Repeated updates for the same step do not re-wake.
         val stepKey = "${u.iconType}|${u.nextRoadName}"
         val newStep = stepKey != navLastStepKey
-        navLastStepKey = stepKey
+        if (newStep) { navLastStepKey = stepKey; navWokeNear = false }
         if (newStep && cfg.navVolumeNudge) scheduleVolumeNudge()
+        val hasData = u.stepRemainM > 0 || u.iconType > 0
         when (cfg.navCard) {
-            "always" -> { if (!navHolding) { navHolding = true; sleeper.holdOn() }; sleeper.wake() }
+            "always" -> { if (!navHolding) { navHolding = true; sleeper.holdOn() }; if (newStep) sleeper.wake() }
             "smart" -> {
-                if (newStep || u.stepRemainM <= cfg.navWakeDistanceM) wakeForNav()
+                if (newStep && hasData) wakeForNav()
+                else if (!navWokeNear && hasData && u.stepRemainM <= cfg.navWakeDistanceM) { navWokeNear = true; wakeForNav() }
             }
         }
     }
@@ -642,6 +671,7 @@ class MainActivity : AppCompatActivity() {
     private fun onNavStop() {
         applyNavMute(false)
         showNavCard(false)
+        applyVisibility()
         navHandler.removeCallbacks(navSleepRunnable)
         if (navHolding) { navHolding = false; sleeper.release() }
     }
@@ -655,9 +685,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showNavCard(show: Boolean) {
-        navCard.visibility = if (show) View.VISIBLE else View.GONE
-        headerViews.forEach { it.visibility = if (show) View.INVISIBLE else View.VISIBLE }
-        agendaView.visibility = if (show) View.INVISIBLE else View.VISIBLE
+        navCardWanted = show
+        applyVisibility()
     }
 
     private fun formatDistance(m: Int): String = if (m >= 1000) String.format(java.util.Locale.US, "%.1f km", m / 1000f) else "$m m"

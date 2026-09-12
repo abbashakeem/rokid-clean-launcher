@@ -7,6 +7,7 @@
     <string name="feels_like">Feels like %1$d°</string>
     <string name="btn_brightness">Brightness</string>
     <string name="btn_messages">Messages</string>
+    <string name="btn_navigation">Navigation</string>
     <string name="no_messages">No messages</string>
     <string name="btn_home">Home</string>
     <string name="btn_apps">Apps</string>

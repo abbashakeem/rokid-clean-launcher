@@ -42,9 +42,12 @@ class WeatherRepository {
     /** Rokid weatherId table (from its launcher) collapsed to our icon codes and labels. */
     fun fromRokid(w: RokidWeather): Weather {
         val id = w.weatherId
+        // Rokid's table has no day/night variants; use the clock for the clear/partly icons
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val n = if (hour < 6 || hour >= 19) "n" else "d"
         val (code, label) = when (id) {
-            in 1..5 -> "01d" to "Clear"
-            6, 7 -> "02d" to "Mostly clear"
+            in 1..5 -> "01$n" to "Clear"
+            6, 7 -> "02$n" to "Mostly clear"
             in 8..12, in 80..82 -> "03d" to "Cloudy"
             13, 14, 36, 85 -> "04d" to "Overcast"
             in 15..23, in 51..57, in 66..70, 78, 86, in 91..93 -> "10d" to "Rain"
