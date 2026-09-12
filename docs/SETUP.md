@@ -80,7 +80,7 @@ git remote add origin https://github.com/abbashakeem/rokid-clean-launcher.git &&
 ### A3. Create the service (Blueprint)
 
 1. Render dashboard → **New +** → **Blueprint** → connect GitHub → pick `rokid-clean-launcher`.
-   Render reads `backend/render.yaml`: Docker runtime, free plan, health check on `/health`.
+   Render reads `render.yaml` at the repo root: Docker runtime, free plan, health check on `/health`.
 2. It will prompt for the variables marked `sync: false`. Fill in:
    `API_KEY` (from A1), `ICLOUD_USER`, `ICLOUD_APP_PASSWORD`, `CALENDARS` (Part B),
    `OWM_API_KEY`, `LAT`, `LON` (A4). Change `TZ` / `UNITS` if needed.
