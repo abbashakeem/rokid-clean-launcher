@@ -18,5 +18,5 @@ launcher/.idea/
 launcher/*.iml
 .DS_Store
 
-# local toolchain (JDK downloaded by docs/SETUP.md fallback)
-tools/
+# local toolchain (JDK downloaded by docs/SETUP.md fallback); tools/rokid-link is source
+tools/jdk17/
