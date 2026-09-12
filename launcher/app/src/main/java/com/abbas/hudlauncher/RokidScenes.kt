@@ -207,6 +207,16 @@ class RokidScenes(private val context: Context) {
                         }
                     }
                 }
+                // scene_data snapshot: {"navigationRunning":bool, "translateRunning":bool, ...}. The route ending on
+                // the phone arrives here (navigationRunning=false), not as a Nav_Stop on the Nav channel.
+                "cmd_notify_scene_status" -> {
+                    val d = JSONObject(o.optString("data"))
+                    if (d.has("navigationRunning")) {
+                        val running = d.optBoolean("navigationRunning")
+                        if (navActive && !running) { navActive = false; Log.d(TAG, "navigation scene stopped"); onNavStop?.invoke() }
+                        else if (!navActive && running) { navActive = true }
+                    }
+                }
                 "cmd_bluetooth_status", "cmd_bluetooth_phone_status" -> Log.d(TAG, "${o.optString("type")} ${o.optString("data").take(300)}")
                 else -> Log.v(TAG, "msg ${o.optString("type")}")
             }
