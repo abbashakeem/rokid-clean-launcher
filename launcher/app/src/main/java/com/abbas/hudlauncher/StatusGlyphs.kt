@@ -13,8 +13,8 @@ class BatteryView @JvmOverloads constructor(context: Context, attrs: AttributeSe
     var level = 100; set(v) { field = v.coerceIn(0, 100); invalidate() }
     var charging = false; set(v) { field = v; invalidate() }
 
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFFFFFFF.toInt() }
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFFFFFFFF.toInt() }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF40FF5E.toInt() }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFF40FF5E.toInt() }
     private val bolt = Path()
 
     override fun onDraw(c: Canvas) {
@@ -44,9 +44,9 @@ class BatteryView @JvmOverloads constructor(context: Context, attrs: AttributeSe
 class WifiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
     var level = -1; set(v) { field = v.coerceIn(-1, 4); invalidate() }
 
-    private val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFFFFFFF.toInt(); strokeCap = Paint.Cap.ROUND }
-    private val off = Paint(on).apply { color = 0xFF505050.toInt() }
-    private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFFFFFFFF.toInt() }
+    private val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFF40FF5E.toInt(); strokeCap = Paint.Cap.ROUND }
+    private val off = Paint(on).apply { color = 0xFF1B6B28.toInt() }
+    private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFF40FF5E.toInt() }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
@@ -59,7 +59,7 @@ class WifiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
             val p = if (level >= i + 1) on else off
             c.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), 225f, 90f, false, p)
         }
-        dot.color = if (level >= 1) 0xFFFFFFFF.toInt() else 0xFF505050.toInt()
+        dot.color = if (level >= 1) 0xFF40FF5E.toInt() else 0xFF1B6B28.toInt()
         c.drawCircle(cx, cy - sw, sw * 0.9f, dot)
     }
 }

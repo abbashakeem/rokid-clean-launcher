@@ -265,6 +265,7 @@ phone's Bluetooth audio (A2DP sink / HFP client) is connected. Needs the `BLUETO
 
 ### Display crispness
 
+Ink colour is Rokid's own green (#40FF5E): pure white drives the green micro-LED panel harder and blooms.
 No text shadows, no translucent fills, and greys as solid colours: soft edges and alpha blends bloom on
 the micro-LED panel. Keep vector strokes at least ~1 dp after scaling (tiny glyphs need thicker strokes).
 

@@ -61,7 +61,7 @@ class AppPicker(
                 val centre = offset == 0
                 view.scaleX = if (centre) 1.25f else 0.85f
                 view.scaleY = view.scaleX
-                view.imageTintList = android.content.res.ColorStateList.valueOf(if (centre) 0xFFFFFFFF.toInt() else 0xFF8C8C8C.toInt())
+                view.imageTintList = android.content.res.ColorStateList.valueOf(if (centre) 0xFF40FF5E.toInt() else 0xFF2AA83E.toInt())
                 view.setOnClickListener { selected = idx; launchSelected() }
             }
             strip.addView(view)
