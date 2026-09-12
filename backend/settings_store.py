@@ -25,6 +25,7 @@ class LauncherSettings(BaseModel):
     nav_card: str = Field("smart", pattern="^(off|always|smart)$")      # smart = wake for a change, sleep after nav_off_seconds
     nav_off_seconds: int = Field(10, ge=3, le=120)
     nav_wake_distance_m: int = Field(300, ge=50, le=2000)               # wake when the next turn is within this distance
+    nav_mute_voice: bool = False                                        # mute Bluetooth media on the glasses while navigating
     # misc
     marquee_titles: bool = True
 

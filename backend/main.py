@@ -167,6 +167,8 @@ SETTINGS_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="
  <label>Mode <select name="nav_card"><option value="smart">Smart: wake for turns, then sleep</option><option value="always">Always on while navigating</option><option value="off">Off</option></select></label>
  <label>Sleep after a turn (s) <input type="number" name="nav_off_seconds" min="3" max="120"></label>
  <label>Wake when turn within (m) <input type="number" name="nav_wake_distance_m" min="50" max="2000"></label>
+ <label>Mute voice guidance on the glasses <input type="checkbox" name="nav_mute_voice"></label>
+ <div class="hint">The voice is generated on the phone and streamed over Bluetooth, so this mutes the glasses' media audio for the duration of the route (music included) and restores it afterwards.</div>
 </fieldset>
 <button type="submit">Save</button>
 <div id="status"></div>
