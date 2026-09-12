@@ -149,7 +149,7 @@ class MainActivity : AppCompatActivity() {
         calendarRepo = CalendarRepository(this)
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
-        configRepo = ConfigRepository(this)
+        configRepo = HudApp.instance.configRepo
         navCard = findViewById(R.id.nav_card)
         navIcon = findViewById(R.id.nav_icon)
         navDistance = findViewById(R.id.nav_distance)
@@ -164,7 +164,7 @@ class MainActivity : AppCompatActivity() {
         navWxCond = findViewById(R.id.nav_wx_cond)
         navMuted = findViewById(R.id.nav_muted)
         navMutedText = findViewById(R.id.nav_muted_text)
-        scenes = RokidScenes(this)
+        scenes = HudApp.instance.scenes
         scenes.onWeather = { if (cfg.weatherSource == "rokid") renderWeather(weatherRepo.fromRokid(it)) }
         scenes.onSchedule = { if (cfg.calendarSource != "api") lifecycleScope.launch { renderAgenda(calendarRepo.fetch(cfg.calendarSource, it, cfg.maxEvents)) } }
         scenes.onNavStart = { onNavStart(it) }
@@ -221,6 +221,7 @@ class MainActivity : AppCompatActivity() {
         sleeper.onResume()
         setSystemClickSounds(false)
         ReturnWatch.disarm(this)        // we are back in front; nothing to watch for
+        isInForeground = true
         scenes.bind()
         media.start()
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -237,6 +238,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        isInForeground = false
         ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel(); configJob?.cancel()
         sleeper.onPause()
         setSystemClickSounds(true)
@@ -248,7 +250,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (BuildConfig.DEBUG) try { unregisterReceiver(debugNavReceiver) } catch (_: Exception) {}
-        scenes.unbind()
     }
 
     /** Rokid shows a now-playing pill in the bar while Bluetooth music is active; ours replaces Home. */
@@ -552,7 +553,7 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "debug nav broadcast ${i.extras?.keySet()?.joinToString()}")
             when (i.getStringExtra("cmd")) {
                 "stop" -> onNavStop()
-                "start" -> onNavStart(i.getStringExtra("road") ?: "Destination")
+                "start" -> { scenes.onNavAny?.invoke(); onNavStart(i.getStringExtra("road") ?: "Destination") }
                 "map" -> i.getStringExtra("map64")?.let { onNavMap(i.getStringExtra("mode") ?: "0", android.util.Base64.decode(it, android.util.Base64.DEFAULT)) }
                 else -> onNavUpdate(NavUpdate(i.getIntExtra("icon", 9), null, i.getStringExtra("road") ?: "", "",
                     i.getIntExtra("step", 300), i.getIntExtra("remain", 5000), i.getIntExtra("secs", 900), i.getIntExtra("speed", 40)))
@@ -580,6 +581,21 @@ class MainActivity : AppCompatActivity() {
             navMap.visibility = View.VISIBLE
         } catch (e: Exception) { Log.w(TAG, "bad map image: ${e.message}") }
     }
+
+    /**
+     * iOS ducks music for the voice prompt and sometimes never restores it. Re-sending our media volume
+     * over AVRCP a few seconds after an instruction can snap the phone out of the ducked state.
+     */
+    private val volumeNudge = Runnable {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val v = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            if (v > 0) { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v - 1, 0); am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v, 0) }
+            else { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v + 1, 0); am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, v, 0) }
+            Log.d(TAG, "volume nudge at $v")
+        } catch (e: Exception) { Log.w(TAG, "nudge: ${e.message}") }
+    }
+    private fun scheduleVolumeNudge() { navHandler.removeCallbacks(volumeNudge); navHandler.postDelayed(volumeNudge, 8_000) }
 
     /** The guidance voice is generated on the phone and streamed over Bluetooth; mute the glasses' media stream for the route. */
     private fun applyNavMute(navOn: Boolean) {
@@ -614,6 +630,7 @@ class MainActivity : AppCompatActivity() {
         val stepKey = "${u.iconType}|${u.nextRoadName}"
         val newStep = stepKey != navLastStepKey
         navLastStepKey = stepKey
+        if (newStep && cfg.navVolumeNudge) scheduleVolumeNudge()
         when (cfg.navCard) {
             "always" -> { if (!navHolding) { navHolding = true; sleeper.holdOn() }; sleeper.wake() }
             "smart" -> {
@@ -669,6 +686,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "HudMain"
+        @Volatile var isInForeground = false
         private const val A2DP_SINK = 11        // BluetoothProfile.A2DP_SINK (hidden)
         private const val HEADSET_CLIENT = 16   // BluetoothProfile.HEADSET_CLIENT (hidden)
         private const val ROKID_LAUNCHER_PKG = "com.rokid.os.sprite.launcher"

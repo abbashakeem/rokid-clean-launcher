@@ -52,6 +52,8 @@ class RokidScenes(private val context: Context) {
     var onNavStart: ((destination: String) -> Unit)? = null
     var onNavUpdate: ((NavUpdate) -> Unit)? = null
     var onNavStop: (() -> Unit)? = null
+    /** App-level hook fired on Nav_Start and every Nav_UpdateInfo (used to take the foreground). */
+    var onNavAny: (() -> Unit)? = null
     /** Map image from the phone (Nav_Map_Data); mode "1" = route overview, "0" = follow-car. */
     var onNavMap: ((mode: String, png: ByteArray) -> Unit)? = null
 
@@ -200,13 +202,14 @@ class RokidScenes(private val context: Context) {
             val p = JSONObject(param)
             val d = p.optString("data")
             when (p.optString("subCmd")) {
-                "Nav_Start" -> { navActive = true; onNavStart?.invoke(JSONObject(d).optString("destination")) }
+                "Nav_Start" -> { navActive = true; onNavAny?.invoke(); onNavStart?.invoke(JSONObject(d).optString("destination")) }
                 "Nav_Stop" -> { navActive = false; onNavStop?.invoke() }
                 "Nav_Map_Data" -> {
                     if (bytes != null && bytes.size > 16) onNavMap?.invoke(JSONObject(d).optString("mode", "0"), bytes)
                 }
                 "Nav_UpdateInfo" -> {
                     navActive = true
+                    onNavAny?.invoke()
                     val u = JSONObject(d)
                     onNavUpdate?.invoke(NavUpdate(
                         iconType = u.optInt("iconType"), iconPng = bytes?.takeIf { it.size > 16 },

@@ -284,8 +284,11 @@ While the phone navigates through the Rokid app, the assist server streams `Nav_
 `Nav_Stop` to registered clients (turn icon PNG, metres to the turn, next road, remaining distance/time,
 speed). The launcher replaces its header with a turn card. Modes: `smart` (default) wakes the panel for a
 new instruction or when the turn is within `nav_wake_distance_m`, then sleeps `nav_off_seconds` later;
-`always` keeps the panel on; `off` hides the card. The card shows on our home screen, so double-tap out of
-Rokid's own navigation page after starting a route. Simulate a turn over USB with a debug build:
+`always` keeps the panel on; `off` hides the card. Rokid's server opens its own navigation page when a
+route starts; with "Show our card instead of Rokid's nav page" on (default) the HUD brings itself to the
+front within a second. The assist-server client lives in the Application, so feeds keep flowing while the
+HUD is in the background. "Volume nudge" re-sends the glasses' media volume to the phone 8 s after each
+instruction, a workaround for iOS leaving music ducked after a voice prompt. Simulate a turn over USB with a debug build:
 
 ```bash
 adb shell "am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road 'Chapel St' --ei remain 4200 --ei secs 780 --ei speed 42"

@@ -20,6 +20,8 @@ data class LauncherConfig(
     val navWakeDistanceM: Int = 300,
     val marqueeTitles: Boolean = true,
     val navMuteVoice: Boolean = false,
+    val navVolumeNudge: Boolean = false,
+    val navTakeOver: Boolean = true,
 ) {
     companion object {
         fun fromJson(j: JSONObject) = LauncherConfig(
@@ -35,6 +37,8 @@ data class LauncherConfig(
             navWakeDistanceM = j.optInt("nav_wake_distance_m", 300),
             marqueeTitles = j.optBoolean("marquee_titles", true),
             navMuteVoice = j.optBoolean("nav_mute_voice", false),
+            navVolumeNudge = j.optBoolean("nav_volume_nudge", false),
+            navTakeOver = j.optBoolean("nav_take_over", true),
         )
     }
 }
