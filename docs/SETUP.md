@@ -269,6 +269,28 @@ Ink colour is Rokid's own green (#40FF5E): pure white drives the green micro-LED
 No text shadows, no translucent fills, and greys as solid colours: soft edges and alpha blends bloom on
 the micro-LED panel. Keep vector strokes at least ~1 dp after scaling (tiny glyphs need thicker strokes).
 
+### Settings without a cable
+
+Open `https://rokid-hud-backend.onrender.com/settings` in any browser, paste the API key once (kept in
+that browser only) and change: calendar source (backend CalDAV / Rokid phone feed / both), weather source
+(backend OpenWeatherMap / Rokid phone feed), agenda rows, idle-off seconds, auto-dim with day/night
+brightness, navigation card mode and timings, title marquee. The glasses poll `/config` every 5 minutes and
+on wake; the middle bar button forces a refresh. The Rokid calendar feed carries no calendar names, so it
+cannot be filtered per iPhone calendar; that is what the backend source is for.
+
+### Navigation card
+
+While the phone navigates through the Rokid app, the assist server streams `Nav_Start` / `Nav_UpdateInfo` /
+`Nav_Stop` to registered clients (turn icon PNG, metres to the turn, next road, remaining distance/time,
+speed). The launcher replaces its header with a turn card. Modes: `smart` (default) wakes the panel for a
+new instruction or when the turn is within `nav_wake_distance_m`, then sleeps `nav_off_seconds` later;
+`always` keeps the panel on; `off` hides the card. The card shows on our home screen, so double-tap out of
+Rokid's own navigation page after starting a route. Simulate a turn over USB with a debug build:
+
+```bash
+adb shell "am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road 'Chapel St' --ei remain 4200 --ei secs 780 --ei speed 42"
+```
+
 ### Now-playing pill
 
 While a media session is active (phone music over Bluetooth appears as

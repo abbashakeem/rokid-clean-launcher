@@ -161,6 +161,8 @@ class MainActivity : AppCompatActivity() {
         musicProgress = findViewById(R.id.music_progress)
         musicPill.setOnClickListener { media.togglePlayPause() }
         media = MediaWatcher(this) { np -> runOnUiThread { renderMusic(np) } }
+        // debug nav feed lives for the whole activity, like the real binder callbacks
+        if (BuildConfig.DEBUG) registerReceiver(debugNavReceiver, IntentFilter("com.abbas.hudlauncher.DEBUG_NAV"), Context.RECEIVER_EXPORTED)
         headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
@@ -222,6 +224,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (BuildConfig.DEBUG) try { unregisterReceiver(debugNavReceiver) } catch (_: Exception) {}
         scenes.unbind()
     }
 
@@ -512,6 +515,23 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- navigation card ----------
 
+    /**
+     * Debug hook (debug builds only): simulate the phone's navigation feed over adb, e.g.
+     *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road "Chapel St" --ei remain 4200 --ei secs 780 --ei speed 42
+     *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --es cmd stop
+     */
+    private val debugNavReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            Log.d(TAG, "debug nav broadcast ${i.extras?.keySet()?.joinToString()}")
+            when (i.getStringExtra("cmd")) {
+                "stop" -> onNavStop()
+                "start" -> onNavStart(i.getStringExtra("road") ?: "Destination")
+                else -> onNavUpdate(NavUpdate(i.getIntExtra("icon", 9), null, i.getStringExtra("road") ?: "", "",
+                    i.getIntExtra("step", 300), i.getIntExtra("remain", 5000), i.getIntExtra("secs", 900), i.getIntExtra("speed", 40)))
+            }
+        }
+    }
+
     private fun onNavStart(destination: String) {
         if (cfg.navCard == "off") return
         navLastStepKey = null
@@ -523,6 +543,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNavUpdate(u: NavUpdate) {
+        Log.d(TAG, "nav update icon=${u.iconType} step=${u.stepRemainM} road=${u.nextRoadName} mode=${cfg.navCard}")
         if (cfg.navCard == "off") return
         if (navCard.visibility != View.VISIBLE) showNavCard(true)
         if (u.iconPng != null) {

@@ -28,6 +28,7 @@ class DisplaySleeper(private val activity: Activity, var idleMs: Long, private v
     /** Turn the panel on (e.g. for a navigation turn) and restart the idle timer. Needs WAKE_LOCK. */
     @Suppress("DEPRECATION")
     fun wake() {
+        Log.d(TAG, "wake requested")
         try {
             val pm = activity.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
             val wl = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "hud:nav")
