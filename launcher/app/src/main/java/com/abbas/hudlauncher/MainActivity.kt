@@ -79,6 +79,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var navClock: TextView
     private lateinit var navAmPm: TextView
     private lateinit var navDate: TextView
+    private lateinit var navWxTemp: TextView
+    private lateinit var navWxIcon: ImageView
+    private lateinit var navWxCond: TextView
     private lateinit var navMuted: View
     private lateinit var navMutedText: View
     private var navSavedVolume = -1
@@ -156,6 +159,9 @@ class MainActivity : AppCompatActivity() {
         navClock = findViewById(R.id.nav_clock)
         navAmPm = findViewById(R.id.nav_ampm)
         navDate = findViewById(R.id.nav_date)
+        navWxTemp = findViewById(R.id.nav_wx_temp)
+        navWxIcon = findViewById(R.id.nav_wx_icon)
+        navWxCond = findViewById(R.id.nav_wx_cond)
         navMuted = findViewById(R.id.nav_muted)
         navMutedText = findViewById(R.id.nav_muted_text)
         scenes = RokidScenes(this)
@@ -354,6 +360,9 @@ class MainActivity : AppCompatActivity() {
         wxCondition.text = w.condition
         wxFeels.text = w.thirdLine()
         wxIcon.setImageResource(w.iconRes)
+        navWxTemp.text = "${w.temp}°"
+        navWxIcon.setImageResource(w.iconRes)
+        navWxCond.text = w.condition
         wxViews.forEach { it.alpha = if (w.isMock) 0.6f else 1f }   // mock data reads dimmer
     }
 
