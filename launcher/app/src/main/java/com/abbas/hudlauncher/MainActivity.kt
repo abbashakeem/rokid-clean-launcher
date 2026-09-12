@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var brightness: BrightnessController
     private lateinit var sleeper: DisplaySleeper
     private lateinit var appPicker: AppPicker
+    private lateinit var headerViews: List<View>
     private var weatherJob: Job? = null
     private var calendarJob: Job? = null
 
@@ -81,7 +82,10 @@ class MainActivity : AppCompatActivity() {
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
-            findViewById(R.id.app_picker_title), visibleRows = 5)
+            findViewById(R.id.app_picker_title),
+            builtIns = listOf(AppEntry(getString(R.string.btn_brightness),
+                getDrawable(R.drawable.ic_brightness)!!, action = { showBrightness() })))
+        headerViews = listOf(clockView, dateDay, dateNum, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
         listOf(btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
@@ -183,16 +187,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Like Rokid's app page: header and agenda hidden, carousel centred, bar stays with Apps focused. */
     private fun openAppPicker() {
+        headerViews.forEach { it.visibility = View.INVISIBLE }
         agendaView.visibility = View.INVISIBLE
-        barView.visibility = View.INVISIBLE
+        btnApps.requestFocus()
         appPicker.open()
     }
 
     private fun closeAppPicker() {
         appPicker.close()
+        headerViews.forEach { it.visibility = View.VISIBLE }
         agendaView.visibility = View.VISIBLE
-        barView.visibility = View.VISIBLE
         btnApps.requestFocus()
     }
 

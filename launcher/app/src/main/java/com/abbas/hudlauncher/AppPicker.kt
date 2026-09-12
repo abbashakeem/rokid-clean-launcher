@@ -3,6 +3,8 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.drawable.Drawable
 import android.util.Log
 import android.view.LayoutInflater
@@ -11,29 +13,35 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
-data class AppEntry(val label: String, val icon: Drawable, val component: ComponentName)
+/** One carousel entry: either an installed app or a built-in action (e.g. brightness). */
+data class AppEntry(
+    val label: String,
+    val icon: Drawable,
+    val component: ComponentName? = null,
+    val action: (() -> Unit)? = null,
+)
 
 /**
- * Our replacement for Rokid's app list page (which cannot be opened from outside its launcher).
- * Shows every LAUNCHER activity except ourselves in a scrolling window of [visibleRows] rows.
- * Swipe = move selection, tap = launch, double tap (BACK) = close.
+ * Rokid-style app picker: a horizontal carousel where the selected item sits in the centre,
+ * enlarged, with its name underneath. Swipe = move, tap = open, double tap (BACK) = close.
+ * Rokid's own picker lives inside its launcher activity and cannot be opened from outside.
  */
 class AppPicker(
     private val context: Context,
     private val panel: View,
-    private val rowsContainer: LinearLayout,
-    private val title: TextView,
-    private val visibleRows: Int,
+    private val strip: LinearLayout,
+    private val label: TextView,
+    private val builtIns: List<AppEntry>,
 ) {
     private var apps: List<AppEntry> = emptyList()
     private var selected = 0
-    private var windowStart = 0
+    private val grayscale = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
 
     val isOpen: Boolean get() = panel.visibility == View.VISIBLE
 
     fun open() {
-        apps = loadApps()
-        selected = 0; windowStart = 0
+        apps = builtIns + loadApps()
+        selected = 0
         panel.visibility = View.VISIBLE
         render()
     }
@@ -43,13 +51,12 @@ class AppPicker(
     fun move(delta: Int) {
         if (apps.isEmpty()) return
         selected = (selected + delta).coerceIn(0, apps.lastIndex)
-        if (selected < windowStart) windowStart = selected
-        if (selected >= windowStart + visibleRows) windowStart = selected - visibleRows + 1
         render()
     }
 
     fun launchSelected() {
         val app = apps.getOrNull(selected) ?: return
+        if (app.action != null) { close(); app.action.invoke(); return }
         val intent = Intent(Intent.ACTION_MAIN).apply {
             addCategory(Intent.CATEGORY_LAUNCHER)
             component = app.component
@@ -60,19 +67,27 @@ class AppPicker(
         }
     }
 
+    /** Show SIDE items either side of the selection; empty slots keep the centre fixed. */
     private fun render() {
-        title.text = context.getString(R.string.btn_apps) + "  ${selected + 1}/${apps.size}"
-        rowsContainer.removeAllViews()
+        label.text = apps.getOrNull(selected)?.label ?: ""
+        strip.removeAllViews()
         val inflater = LayoutInflater.from(context)
-        apps.drop(windowStart).take(visibleRows).forEachIndexed { i, app ->
-            val row = inflater.inflate(R.layout.row_app, rowsContainer, false)
-            row.findViewById<ImageView>(R.id.app_icon).setImageDrawable(app.icon)
-            row.findViewById<TextView>(R.id.app_label).text = app.label
-            val isSel = (windowStart + i == selected)
-            row.setBackgroundResource(if (isSel) R.drawable.row_selected else 0)
-            row.alpha = if (isSel) 1f else 0.75f
-            row.setOnClickListener { selected = windowStart + i; launchSelected() }
-            rowsContainer.addView(row)
+        for (offset in -SIDE..SIDE) {
+            val idx = selected + offset
+            val view = inflater.inflate(R.layout.carousel_item, strip, false) as ImageView
+            val app = apps.getOrNull(idx)
+            if (app == null) {
+                view.visibility = View.INVISIBLE
+            } else {
+                view.setImageDrawable(app.icon)
+                view.colorFilter = grayscale                    // the display is monochrome anyway
+                val centre = offset == 0
+                view.scaleX = if (centre) 1.25f else 0.85f
+                view.scaleY = view.scaleX
+                view.alpha = if (centre) 1f else 0.55f
+                view.setOnClickListener { selected = idx; launchSelected() }
+            }
+            strip.addView(view)
         }
     }
 
@@ -91,5 +106,8 @@ class AppPicker(
             .sortedBy { it.label.lowercase() }
     }
 
-    companion object { private const val TAG = "AppPicker" }
+    companion object {
+        private const val TAG = "AppPicker"
+        private const val SIDE = 2
+    }
 }

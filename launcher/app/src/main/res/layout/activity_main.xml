@@ -105,24 +105,30 @@
                 android:src="@drawable/ic_apps" android:contentDescription="@string/btn_apps" />
         </LinearLayout>
 
-        <!-- App picker: replaces agenda + bar while open -->
+        <!-- App picker: Rokid-style horizontal carousel, centred item enlarged with its label below -->
         <LinearLayout android:id="@+id/app_picker"
             android:layout_width="match_parent" android:layout_height="0dp"
-            android:layout_marginTop="8dp"
             android:orientation="vertical"
+            android:gravity="center"
             android:background="@color/hud_black"
             android:visibility="gone"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/wx_feels"
-            app:layout_constraintBottom_toBottomOf="parent">
-            <TextView android:id="@+id/app_picker_title" style="@style/HudText.Event.Dim"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:paddingStart="6dp" android:text="@string/btn_apps" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/bar">
             <LinearLayout android:id="@+id/app_rows"
-                android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-                android:layout_marginTop="2dp"
-                android:orientation="vertical" />
+                android:layout_width="match_parent" android:layout_height="64dp"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:clipChildren="false" />
+            <TextView android:id="@+id/app_picker_title" style="@style/HudText.Display"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="15sp" android:text="" />
+            <TextView style="@style/HudText.Event.Dim"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/picker_hint" />
         </LinearLayout>
 
         <!-- Brightness picker overlay (hidden until the left button is pressed) -->

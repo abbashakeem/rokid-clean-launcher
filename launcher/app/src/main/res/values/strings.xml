@@ -8,6 +8,7 @@
     <string name="btn_brightness">Brightness</string>
     <string name="btn_home">Home</string>
     <string name="btn_apps">Apps</string>
+    <string name="picker_hint">Tap the touchpad twice to return to the home page</string>
     <string name="brightness_pct">%1$d%%</string>
     <string name="brightness_no_permission">Grant once over USB: adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow</string>
 </resources>
