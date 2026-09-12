@@ -242,11 +242,19 @@ adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow
 
 ### Touchpad controls
 
-The temple touchpad sends D-pad keys. Swipe forward/back moves the focus ring between the three bottom
-buttons, tap selects. Left button opens the brightness slider (swipe to adjust, tap to close), middle
-refreshes weather and calendar, right opens Rokid's own launcher, from which its app list is reachable.
-Rokid's app picker and brightness page are pages inside its launcher activity, not separate apps, so
-they cannot be opened directly.
+The temple touchpad's firmware recognises gestures and sends them as keys (recorded with `getevent`):
+touch start = `KEYCODE_NOTIFICATION` (83), single tap = `ENTER` (about 0.5 s after the touch),
+double tap = `BACK`, swipe forward = `DPAD_RIGHT` plus `DPAD_DOWN` repeats, swipe back = `DPAD_LEFT` plus `DPAD_UP`.
+
+In the launcher: swipe moves the focus ring between the three bottom buttons, tap selects, double tap
+turns the display off (the same gesture Rokid's launcher uses). The display also turns off after 5 s idle;
+this uses the window's own user-activity timeout, so other apps keep the normal system timeout.
+Left button opens the brightness slider (swipe to adjust, tap to close), middle refreshes weather and
+calendar, right opens Rokid's launcher, from which its app list is one swipe away. Rokid's app picker
+and brightness page are pages inside its launcher activity, not separate apps, so they cannot be opened directly.
+
+The tap click sound comes from the system sound-effects pool, so the launcher switches
+`sound_effects_enabled` off while it is in front and back on when another app takes over.
 
 Logs while it runs:
 

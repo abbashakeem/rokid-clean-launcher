@@ -11,6 +11,6 @@ object Config {
 
     /** Display off after this much idle time, like Rokid's launcher. */
     const val IDLE_OFF_MS = 5_000L
-    /** Two taps within this window = double tap = display off. */
-    const val DOUBLE_TAP_MS = 350L
+    /** A swipe arrives as several D-pad keys; act on one per this window. */
+    const val SWIPE_DEBOUNCE_MS = 300L
 }

@@ -3,8 +3,6 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -52,9 +50,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var calendarRepo: CalendarRepository
     private lateinit var brightness: BrightnessController
     private lateinit var sleeper: DisplaySleeper
-    private val tapHandler = Handler(Looper.getMainLooper())
-    private var pendingTap: Runnable? = null
-    private var lastTapAt = 0L
     private var weatherJob: Job? = null
     private var calendarJob: Job? = null
 
@@ -104,6 +99,7 @@ class MainActivity : AppCompatActivity() {
         hideSystemBars()
         ticker.start()
         sleeper.onResume()
+        setSystemClickSounds(false)
         weatherJob = lifecycleScope.launch {
             while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
         }
@@ -116,6 +112,15 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel()
         sleeper.onPause()
+        setSystemClickSounds(true)
+    }
+
+    /** The tap sound comes from the system sound-effects pool, not our views, so toggle the setting. */
+    private fun setSystemClickSounds(enabled: Boolean) {
+        try {
+            android.provider.Settings.System.putInt(contentResolver,
+                android.provider.Settings.System.SOUND_EFFECTS_ENABLED, if (enabled) 1 else 0)
+        } catch (e: Exception) { Log.w(TAG, "cannot toggle sound effects: ${e.message}") }
     }
 
     /** Any touch/key restarts the 5 s idle timer. */
@@ -205,47 +210,48 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------- touchpad keys (ROKID PSOC-TP: DPAD, ENTER, BACK) ----------
+    // ---------- touchpad keys ----------
+    // The ROKID PSOC-TP firmware recognises gestures itself and sends:
+    //   touch start -> KEYCODE_NOTIFICATION (83)   single tap -> ENTER
+    //   double tap  -> BACK                          swipe fwd -> RIGHT (+ DOWN repeats)
+    //   swipe back  -> LEFT (+ UP repeats)
+
+    private var lastSwipeAt = 0L
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         Log.d(TAG, "keyDown $keyCode panel=${brightnessPanel.visibility == View.VISIBLE}")
         sleeper.touch()
-        if (brightnessPanel.visibility == View.VISIBLE) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN -> { adjustBrightness(-BrightnessController.STEP); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP -> { adjustBrightness(+BrightnessController.STEP); return true }
-                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BACK -> { hideBrightness(); return true }
-            }
-        }
+        val panelOpen = brightnessPanel.visibility == View.VISIBLE
         when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { onTap(); return true }
-            KeyEvent.KEYCODE_BACK -> return true                // launcher swallows Back
+            KeyEvent.KEYCODE_NOTIFICATION -> return true                   // touch start: only wakes/resets idle
+            KeyEvent.KEYCODE_BACK -> { sleeper.sleepNow(); return true }   // double tap = display off
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
+                if (panelOpen) hideBrightness() else currentFocus?.performClick()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> { onSwipe(+1, panelOpen); return true }
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> { onSwipe(-1, panelOpen); return true }
         }
-        return super.onKeyDown(keyCode, event)                  // DPAD moves focus between bar buttons
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        // We handle taps ourselves in onKeyDown; stop the focused button from also clicking.
-        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) return true
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) return true
         return super.onKeyUp(keyCode, event)
     }
 
-    /**
-     * Single tap = click the focused button (after a short wait to rule out a double tap).
-     * Double tap = display off, like Rokid's launcher.
-     */
-    private fun onTap() {
+    /** One swipe arrives as several direction keys; act once per SWIPE_DEBOUNCE_MS. */
+    private fun onSwipe(direction: Int, panelOpen: Boolean) {
         val now = System.currentTimeMillis()
-        if (now - lastTapAt <= Config.DOUBLE_TAP_MS) {
-            pendingTap?.let { tapHandler.removeCallbacks(it) }
-            pendingTap = null
-            lastTapAt = 0L
-            sleeper.sleepNow()
-            return
+        if (now - lastSwipeAt < Config.SWIPE_DEBOUNCE_MS) return
+        lastSwipeAt = now
+        if (panelOpen) {
+            adjustBrightness(direction * BrightnessController.STEP)
+        } else {
+            val buttons = listOf(btnBrightness, btnHome, btnApps)
+            val i = buttons.indexOf(currentFocus).let { if (it < 0) 1 else it }
+            buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }
-        lastTapAt = now
-        pendingTap = Runnable { currentFocus?.performClick(); pendingTap = null }
-            .also { tapHandler.postDelayed(it, Config.DOUBLE_TAP_MS + 30) }
     }
 
     private fun hideSystemBars() {
