@@ -241,35 +241,40 @@ class MainActivity : AppCompatActivity() {
 
     private var lastSwipeAt = 0L
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        Log.d(TAG, "keyDown $keyCode panel=${brightnessPanel.visibility == View.VISIBLE}")
-        sleeper.touch()
-        val panelOpen = brightnessPanel.visibility == View.VISIBLE
-        if (appPicker.isOpen) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_NOTIFICATION -> return true
-                KeyEvent.KEYCODE_BACK -> { closeAppPicker(); return true }          // double tap = back to home
-                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> { appPicker.launchSelected(); return true }
-                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> { onSwipe(+1, false); return true }
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> { onSwipe(-1, false); return true }
-            }
-        }
-        when (keyCode) {
-            KeyEvent.KEYCODE_NOTIFICATION -> return true                   // touch start: only wakes/resets idle
-            KeyEvent.KEYCODE_BACK -> { sleeper.sleepNow(); return true }   // double tap = display off
-            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> {
-                if (panelOpen) hideBrightness() else currentFocus?.performClick()
-                return true
-            }
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> { onSwipe(+1, panelOpen); return true }
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> { onSwipe(-1, panelOpen); return true }
-        }
-        return super.onKeyDown(keyCode, event)
+    /**
+     * Intercept before the focused view sees the key: otherwise a focused ImageButton eats
+     * ENTER itself (click on key-up), so a tap in the app picker would re-trigger the Apps button.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        val handledCodes = setOf(
+            KeyEvent.KEYCODE_NOTIFICATION, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+        )
+        if (code !in handledCodes) return super.dispatchKeyEvent(event)
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) handleKey(code)
+        return true
     }
 
-    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) return true
-        return super.onKeyUp(keyCode, event)
+    private fun handleKey(keyCode: Int) {
+        Log.d(TAG, "key $keyCode picker=${appPicker.isOpen} panel=${brightnessPanel.visibility == View.VISIBLE}")
+        sleeper.touch()
+        val panelOpen = brightnessPanel.visibility == View.VISIBLE
+        when (keyCode) {
+            KeyEvent.KEYCODE_NOTIFICATION -> Unit                                   // touch start: only wakes/resets idle
+            KeyEvent.KEYCODE_BACK -> when {                                          // double tap
+                appPicker.isOpen -> closeAppPicker()
+                panelOpen -> hideBrightness()
+                else -> sleeper.sleepNow()
+            }
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> when {          // single tap
+                appPicker.isOpen -> appPicker.launchSelected()
+                panelOpen -> hideBrightness()
+                else -> currentFocus?.performClick()
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> onSwipe(+1, panelOpen)
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> onSwipe(-1, panelOpen)
+        }
     }
 
     /** One swipe arrives as several direction keys; act once per SWIPE_DEBOUNCE_MS. */
