@@ -9,6 +9,7 @@
     <string name="btn_messages">Messages</string>
     <string name="btn_navigation">Navigation</string>
     <string name="no_messages">No messages</string>
+    <string name="opening">Opening %1$s…</string>
     <string name="btn_home">Home</string>
     <string name="btn_apps">Apps</string>
     <string name="picker_hint">Tap the touchpad twice to return to the home page</string>

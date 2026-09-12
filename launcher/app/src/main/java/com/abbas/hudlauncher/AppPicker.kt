@@ -3,6 +3,8 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -41,10 +43,21 @@ class AppPicker(
 
     fun launchSelected() {
         val app = apps.getOrNull(selected) ?: return
-        close()
-        // Rokid scenes/pages finish() onto Rokid's own home; the watcher brings us back afterwards.
+        // Opening a Rokid scene makes its assist server force-stop us (it kills every non-system
+        // package among the top tasks), so our last frame before the hand-off should look deliberate:
+        // show "Opening X" briefly instead of vanishing mid-carousel.
+        showLaunching(app.label)
         if (app.watchReturn) ReturnWatch.arm(context)
-        try { app.action() } catch (e: Exception) { Log.w(TAG, "cannot open ${app.label}: ${e.message}") }
+        Handler(Looper.getMainLooper()).postDelayed({
+            close()
+            try { app.action() } catch (e: Exception) { Log.w(TAG, "cannot open ${app.label}: ${e.message}") }
+        }, HANDOFF_MS)
+    }
+
+    /** Collapse the carousel to a single centred line naming what is opening. */
+    private fun showLaunching(labelText: String) {
+        strip.removeAllViews()
+        label.text = context.getString(R.string.opening, labelText)
     }
 
     private fun render() {
@@ -93,5 +106,6 @@ class AppPicker(
     companion object {
         private const val TAG = "AppPicker"
         private const val SIDE = 2
+        private const val HANDOFF_MS = 260L
     }
 }

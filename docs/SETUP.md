@@ -247,6 +247,16 @@ the page. The system re-binds our notification listener within a fraction of a s
 watcher lives there: armed via SharedPreferences before the scene call, it polls usage events and
 relaunches the HUD as soon as Rokid's home resumes after the page.
 
+### Why opening a Rokid scene flashes its launcher
+
+Rokid's assist server, when it opens a scene, calls `ThirdAppScene.directCloseScene`, which takes the
+top 10 running tasks and force-stops every package that is neither a system app nor in a hardcoded
+allow-list (`SceneConfig.checkPreInstalledPkg`: Rokid's launcher, its assist server, and the four
+payment apps). A sideloaded launcher is always killed, so no view or overlay of ours can survive the
+hand-off, and Rokid's home is the window left underneath while the scene page starts. The picker
+therefore shows an "Opening X" frame first so the transition reads as deliberate, and ReturnWatch
+brings the HUD back afterwards.
+
 ### App picker contents
 
 The carousel mirrors Rokid's own list. Translation, Teleprompter, Subtitles, Navigation and Vision AI are
