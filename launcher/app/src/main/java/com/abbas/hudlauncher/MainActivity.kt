@@ -58,6 +58,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var brightness: BrightnessController
     private lateinit var sleeper: DisplaySleeper
     private lateinit var appPicker: AppPicker
+    private lateinit var scenes: RokidScenes
+    private lateinit var media: MediaWatcher
+    private lateinit var musicPill: View
+    private lateinit var musicState: ImageView
+    private lateinit var musicText: TextView
+    private lateinit var musicProgress: View
+    private var nowPlaying: NowPlaying? = null
     private lateinit var batteryIcon: BatteryView
     private lateinit var batteryText: TextView
     private lateinit var wifiIcon: WifiView
@@ -108,10 +115,15 @@ class MainActivity : AppCompatActivity() {
         calendarRepo = CalendarRepository(this)
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
+        scenes = RokidScenes(this)
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
-            findViewById(R.id.app_picker_title),
-            builtIns = listOf(AppEntry(getString(R.string.btn_brightness),
-                getDrawable(R.drawable.ic_brightness)!!, action = { showBrightness() })))
+            findViewById(R.id.app_picker_title), scenes)
+        musicPill = findViewById(R.id.music_pill)
+        musicState = findViewById(R.id.music_state)
+        musicText = findViewById(R.id.music_text)
+        musicProgress = findViewById(R.id.music_progress)
+        musicPill.setOnClickListener { media.togglePlayPause() }
+        media = MediaWatcher(this) { np -> runOnUiThread { renderMusic(np) } }
         headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
@@ -135,9 +147,11 @@ class MainActivity : AppCompatActivity() {
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
+        scenes.bind()
+        media.start()
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         statusJob = lifecycleScope.launch {
-            while (isActive) { updateWifi(); delay(Config.STATUS_REFRESH_MS) }
+            while (isActive) { updateWifi(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
         }
         weatherJob = lifecycleScope.launch {
             while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
@@ -154,6 +168,36 @@ class MainActivity : AppCompatActivity() {
         setSystemClickSounds(true)
         try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
         statusJob?.cancel()
+        media.stop()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scenes.unbind()
+    }
+
+    /** Rokid shows a now-playing pill in the bar while Bluetooth music is active; ours replaces Home. */
+    private fun renderMusic(np: NowPlaying?) {
+        nowPlaying = np
+        val hadFocus = btnHome.isFocused || musicPill.isFocused
+        if (np == null) {
+            musicPill.visibility = View.GONE
+            btnHome.visibility = View.VISIBLE
+            if (hadFocus) btnHome.requestFocus()
+            return
+        }
+        btnHome.visibility = View.GONE
+        musicPill.visibility = View.VISIBLE
+        musicState.setImageResource(if (np.playing) R.drawable.ic_pause else R.drawable.ic_play)
+        musicText.text = if (np.artist.isBlank()) np.title else "${np.title}  ·  ${np.artist}"
+        musicText.isSelected = true   // starts the marquee
+        musicProgress.post {
+            val track = musicProgress.parent as View
+            val frac = if (np.durationMs > 0) (np.positionMs.toFloat() / np.durationMs).coerceIn(0f, 1f) else 0f
+            musicProgress.layoutParams = musicProgress.layoutParams.apply { width = (track.width * frac).toInt() }
+            musicProgress.requestLayout()
+        }
+        if (hadFocus) musicPill.requestFocus()
     }
 
     @Suppress("DEPRECATION")
@@ -328,7 +372,7 @@ class MainActivity : AppCompatActivity() {
         } else if (panelOpen) {
             adjustBrightness(direction * BrightnessController.STEP)
         } else {
-            val buttons = listOf(btnBrightness, btnHome, btnApps)
+            val buttons = listOf(btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
             val i = buttons.indexOf(currentFocus).let { if (it < 0) 1 else it }
             buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }

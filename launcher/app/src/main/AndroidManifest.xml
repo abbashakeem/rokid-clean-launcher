@@ -43,5 +43,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Grants access to media sessions for the now-playing pill:
+             adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener -->
+        <service
+            android:name=".HudNotificationListener"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

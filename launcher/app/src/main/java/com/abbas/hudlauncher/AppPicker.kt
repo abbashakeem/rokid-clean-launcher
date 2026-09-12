@@ -3,7 +3,6 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Drawable
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -11,60 +10,40 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** One carousel entry: either an installed app or a built-in action (e.g. brightness). */
-data class AppEntry(
-    val label: String,
-    val icon: Drawable,
-    val component: ComponentName? = null,
-    val action: (() -> Unit)? = null,
-)
+/** One carousel entry: label, outline glyph, and what happens on tap. */
+data class AppEntry(val label: String, val iconRes: Int, val action: () -> Unit)
 
 /**
- * Rokid-style app picker: a horizontal carousel where the selected item sits in the centre,
- * enlarged, with its name underneath. Swipe = move, tap = open, double tap (BACK) = close.
- * Rokid's own picker lives inside its launcher activity and cannot be opened from outside.
+ * Rokid-style app picker: a horizontal carousel with the selected item centred and enlarged.
+ * Entries mirror Rokid's own list: its scenes (via the assist server), its exported pages
+ * (explicit intents) and Android Settings. Swipe = move, tap = open, double tap (BACK) = close.
  */
 class AppPicker(
     private val context: Context,
     private val panel: View,
     private val strip: LinearLayout,
     private val label: TextView,
-    private val builtIns: List<AppEntry>,
+    private val scenes: RokidScenes,
 ) {
-    private var apps: List<AppEntry> = emptyList()
+    private val apps: List<AppEntry> = buildEntries()
     private var selected = 0
 
     val isOpen: Boolean get() = panel.visibility == View.VISIBLE
 
-    fun open() {
-        apps = builtIns + loadApps()
-        selected = 0
-        panel.visibility = View.VISIBLE
-        render()
-    }
-
+    fun open() { selected = 0; panel.visibility = View.VISIBLE; render() }
     fun close() { panel.visibility = View.GONE }
 
     fun move(delta: Int) {
-        if (apps.isEmpty()) return
         selected = (selected + delta).coerceIn(0, apps.lastIndex)
         render()
     }
 
     fun launchSelected() {
         val app = apps.getOrNull(selected) ?: return
-        if (app.action != null) { close(); app.action.invoke(); return }
-        val intent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            component = app.component
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        }
-        try { context.startActivity(intent); close() } catch (e: Exception) {
-            Log.w(TAG, "cannot launch ${app.component}: ${e.message}")
-        }
+        close()
+        try { app.action() } catch (e: Exception) { Log.w(TAG, "cannot open ${app.label}: ${e.message}") }
     }
 
-    /** Show SIDE items either side of the selection; empty slots keep the centre fixed. */
     private fun render() {
         label.text = apps.getOrNull(selected)?.label ?: ""
         strip.removeAllViews()
@@ -76,7 +55,7 @@ class AppPicker(
             if (app == null) {
                 view.visibility = View.INVISIBLE
             } else {
-                view.setImageDrawable(app.icon)
+                view.setImageResource(app.iconRes)
                 val centre = offset == 0
                 view.scaleX = if (centre) 1.25f else 0.85f
                 view.scaleY = view.scaleX
@@ -87,33 +66,24 @@ class AppPicker(
         }
     }
 
-    private fun loadApps(): List<AppEntry> {
-        val pm = context.packageManager
-        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return pm.queryIntentActivities(intent, 0)
-            .filter { it.activityInfo.packageName != context.packageName }
-            .map {
-                AppEntry(
-                    label = it.loadLabel(pm).toString(),
-                    icon = context.getDrawable(iconFor(it.activityInfo.packageName))!!,
-                    component = ComponentName(it.activityInfo.packageName, it.activityInfo.name),
-                )
-            }
-            .sortedBy { it.label.lowercase() }
+    private fun activity(pkg: String, cls: String): () -> Unit = {
+        context.startActivity(Intent(Intent.ACTION_MAIN).apply {
+            component = ComponentName(pkg, cls)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        })
     }
 
-    /** Simple white outline glyphs instead of the apps' own bitmap icons, which read as heavy tiles. */
-    private fun iconFor(pkg: String): Int = when {
-        pkg.contains("camera") -> R.drawable.app_camera
-        pkg == "com.android.settings" -> R.drawable.app_settings
-        pkg.contains("soundrecorder") -> R.drawable.app_recorder
-        pkg == "com.rokid.os.sprite.launcher" -> R.drawable.app_rokid
-        pkg.contains("alipay", ignoreCase = true) -> R.drawable.app_pay_card
-        pkg.contains("wxpay") || pkg.contains("tencent") -> R.drawable.app_pay_chat
-        pkg.contains("ar_pay") -> R.drawable.app_pay_qr
-        pkg.contains("jd.") || pkg.contains("buy") -> R.drawable.app_shop
-        else -> R.drawable.app_generic
-    }
+    private fun buildEntries(): List<AppEntry> = listOf(
+        AppEntry("Translation", R.drawable.app_translate) { scenes.openScene(RokidScenes.SCENE_TRANSLATE) },
+        AppEntry("Teleprompter", R.drawable.app_prompter) { scenes.openScene(RokidScenes.SCENE_TELEPROMPTER) },
+        AppEntry("Subtitles", R.drawable.app_subtitles) { scenes.openScene(RokidScenes.SCENE_SUBTITLES) },
+        AppEntry("Music", R.drawable.app_music, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_MUSIC)),
+        AppEntry("Navigation", R.drawable.app_navigation) { scenes.openScene(RokidScenes.SCENE_NAVIGATION) },
+        AppEntry("Vision AI", R.drawable.app_vision) { scenes.openScene(RokidScenes.SCENE_VISION_AI) },
+        AppEntry("Device info", R.drawable.app_info, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_DEVICE_INFO)),
+        AppEntry("Settings", R.drawable.app_settings, activity("com.android.settings", "com.android.settings.Settings")),
+        AppEntry("Rokid home", R.drawable.app_rokid, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_HOME)),
+    )
 
     companion object {
         private const val TAG = "AppPicker"

@@ -191,7 +191,7 @@ The file is git-ignored.
 source ./env.sh && cd launcher && ./gradlew assembleDebug
 ```
 
-The APK lands at `launcher/app/build/outputs/apk/debug/app-debug.apk`.
+The APK lands at `~/Library/Caches/hudlauncher-build/app/outputs/apk/debug/app-debug.apk` (see Build output below).
 
 ### C4. Try it on the Mac first (emulator, since there is no phone)
 
@@ -206,7 +206,7 @@ emulator -avd hud -no-boot-anim &
 Once it boots:
 
 ```bash
-cd launcher && adb install -r app/build/outputs/apk/debug/app-debug.apk && adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME
+adb install -r ~/Library/Caches/hudlauncher-build/app/outputs/apk/debug/app-debug.apk && adb shell am start -a android.intent.action.MAIN -c android.intent.category.HOME
 ```
 
 Pick **HUD Launcher → Always** in the chooser. To prove the 12-hour format ignores the system setting,
@@ -218,7 +218,7 @@ Reaching a local backend from the emulator: use `http://10.0.2.2:8000` as `HUD_B
 ### C5. Install on the glasses
 
 ```bash
-cd launcher && adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r ~/Library/Caches/hudlauncher-build/app/outputs/apk/debug/app-debug.apk
 ```
 
 Press the home gesture/button on the glasses. If a chooser appears, pick **HUD Launcher → Always**.
@@ -234,11 +234,31 @@ If that is refused, launch the app from Rokid's app list instead. To go back to 
 adb uninstall com.abbas.hudlauncher
 ```
 
-Grant the brightness picker permission once (it writes the system brightness setting):
+Grant two permissions once over USB. The first lets the brightness slider write the system setting,
+the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener
 ```
+
+### App picker contents
+
+The carousel mirrors Rokid's own list. Translation, Teleprompter, Subtitles, Navigation and Vision AI are
+Rokid "scenes", opened through the assist server's binder (`MasterAssistService`, exported without a
+permission) with the same JSON command Rokid's launcher sends. Music, Device info and Rokid home are
+exported activities in Rokid's launcher, started by explicit intent. Settings is Android's.
+
+### Now-playing pill
+
+While a media session is active (phone music over Bluetooth appears as
+`com.android.bluetooth/BluetoothMediaBrowserService`), the Home button is replaced by a pill showing
+play state, title, artist and progress. Tap toggles play/pause. Requires the notification-listener grant above.
+
+### Build output
+
+`Documents` is iCloud-synced and iCloud creates `name 2.xml` duplicates inside Gradle's build folder, which
+breaks resource merging. Both Gradle build directories therefore live under `~/Library/Caches/hudlauncher-build/`.
+The APK is at `~/Library/Caches/hudlauncher-build/app/outputs/apk/debug/app-debug.apk`.
 
 ### Touchpad controls
 

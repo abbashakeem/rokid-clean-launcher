@@ -82,8 +82,8 @@
     </style>
 
     <style name="BarButton">
-        <item name="android:layout_width">36dp</item>
-        <item name="android:layout_height">30dp</item>
+        <item name="android:layout_width">30dp</item>
+        <item name="android:layout_height">26dp</item>
         <item name="android:padding">5dp</item>
         <item name="android:background">@drawable/bar_button_bg</item>
         <item name="android:scaleType">fitCenter</item>

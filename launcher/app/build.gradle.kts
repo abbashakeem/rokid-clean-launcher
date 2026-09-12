@@ -12,6 +12,10 @@ val localProps = Properties().apply {
 }
 fun prop(name: String, default: String) = localProps.getProperty(name) ?: default
 
+// Documents is iCloud-synced and iCloud creates "name 2.xml" duplicates inside build output,
+// which breaks resource merging. Keep generated files outside the synced tree.
+layout.buildDirectory.set(File(System.getProperty("user.home"), "Library/Caches/hudlauncher-build/app"))
+
 android {
     namespace = "com.abbas.hudlauncher"
     compileSdk = 34
