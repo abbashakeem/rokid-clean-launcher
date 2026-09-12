@@ -4,24 +4,69 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Binder
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.Parcel
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 
+data class PhoneMessage(val app: String, val title: String, val text: String, val time: Long)
+
 /**
- * Opens Rokid "scenes" (translation, teleprompter, subtitles, vision AI, navigation) through the
- * assist server's binder, exactly like Rokid's own launcher does:
- *   IAssistServer.controlMsgJson(pkg, {"type":"cmd_open_scene_with_ignore_tips","data":{...}})
- * The service is exported without a permission. Interface details come from Rokid's launcher APK.
+ * Client of Rokid's assist server (com.rokid.os.sprite.assistserver/MasterAssistService, exported, no
+ * permission). Protocol reverse-engineered from Rokid's launcher APK:
+ *
+ *  - IAssistServer (descriptor com.rokid.os.sprite.assist.server.IAssistServer)
+ *      1 registerClient(String pkg, IAssistClient client)
+ *      3 controlMsgJson(String pkg, String json)   json = {"type": cmd, "data": {...}}
+ *  - IAssistClient (descriptor com.rokid.os.sprite.assist.client.IAssistClient), implemented by us:
+ *      1 onRegisterResult(RegisterResult)       2 onMessageReceive(AssistMessage) -> boolean
+ *      3 onDataReceive(String, String, byte[])
+ *    AssistMessage parcel: messageId(long) packageName infoType time(long) message(json string)
+ *
+ * Message JSON types we use:
+ *   cmd_bluetooth_gatt_status          data {"status": bool, ...}          phone app link
+ *   cmd_bluetooth_gatt_normal_result   data {"cmd": "Ntf_SendNewMsg", "caps1": MobileNotifyData}
+ *                                      data {"cmd": "Ntf_ResetMsgList", "caps1": [MobileNotifyData]}
  */
 class RokidScenes(private val context: Context) {
+    var onPhoneLink: ((Boolean) -> Unit)? = null
+    var onMessages: ((List<PhoneMessage>) -> Unit)? = null
+
+    var phoneLinked = false; private set
+    val messages = ArrayDeque<PhoneMessage>()
+
     private var server: IBinder? = null
     private var pending: String? = null
+    private val main = Handler(Looper.getMainLooper())
+
+    private val client = object : Binder() {
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            if (code in 1..16777215) data.enforceInterface(CLIENT_DESCRIPTOR)
+            when (code) {
+                1 -> { reply?.writeNoException(); Log.d(TAG, "registered with assist server") }
+                2 -> {
+                    if (data.readInt() != 0) {           // typed object present
+                        data.readLong(); data.readString(); data.readString(); data.readLong()
+                        val json = data.readString()
+                        json?.let { main.post { handleMessage(it) } }
+                    }
+                    reply?.writeNoException(); reply?.writeInt(1)
+                }
+                3 -> { data.readString(); data.readString(); val b = data.createByteArray(); reply?.writeNoException(); reply?.writeByteArray(b) }
+                else -> return super.onTransact(code, data, reply, flags)
+            }
+            return true
+        }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             server = binder
+            register()
             pending?.let { send(it); pending = null }
         }
         override fun onServiceDisconnected(name: ComponentName) { server = null }
@@ -46,36 +91,88 @@ class RokidScenes(private val context: Context) {
         if (server?.isBinderAlive == true) send(msg) else { pending = msg; bind() }
     }
 
+    private fun register() {
+        val binder = server ?: return
+        val req = Parcel.obtain(); val reply = Parcel.obtain()
+        try {
+            req.writeInterfaceToken(SERVER_DESCRIPTOR)
+            req.writeString(context.packageName)
+            req.writeStrongBinder(client)
+            binder.transact(TRANSACTION_REGISTER_CLIENT, req, reply, 0)
+            reply.readException()
+        } catch (e: Exception) { Log.w(TAG, "registerClient failed: ${e.message}") }
+        finally { req.recycle(); reply.recycle() }
+        // ask for the current phone-app link state; later changes arrive as cmd_bluetooth_gatt_status
+        send(JSONObject().put("type", CMD_GET_BLE_STATUS).toString())
+    }
+
     private fun send(json: String) {
         val binder = server ?: return
         val req = Parcel.obtain(); val reply = Parcel.obtain()
         try {
-            req.writeInterfaceToken(DESCRIPTOR)
+            req.writeInterfaceToken(SERVER_DESCRIPTOR)
             req.writeString(CALLER_PKG)
             req.writeString(json)
             binder.transact(TRANSACTION_CONTROL_MSG_JSON, req, reply, 0)
             reply.readException()
             Log.d(TAG, "sent $json")
-        } catch (e: Exception) {
-            Log.w(TAG, "controlMsgJson failed: ${e.message}")
-        } finally { req.recycle(); reply.recycle() }
+        } catch (e: Exception) { Log.w(TAG, "controlMsgJson failed: ${e.message}") }
+        finally { req.recycle(); reply.recycle() }
+    }
+
+    private fun handleMessage(json: String) {
+        try {
+            val o = JSONObject(json)
+            when (o.optString("type")) {
+                "cmd_bluetooth_gatt_status" -> {
+                    val d = JSONObject(o.optString("data"))
+                    phoneLinked = d.optBoolean("status")
+                    onPhoneLink?.invoke(phoneLinked)
+                }
+                "cmd_bluetooth_gatt_normal_result" -> {
+                    val d = JSONObject(o.optString("data"))
+                    when (d.optString("cmd")) {
+                        "Ntf_SendNewMsg" -> { addMessage(JSONObject(d.optString("caps1"))); onMessages?.invoke(messages.toList()) }
+                        "Ntf_ResetMsgList" -> {
+                            messages.clear()
+                            val arr = JSONArray(d.optString("caps1"))
+                            for (i in 0 until arr.length()) addMessage(arr.getJSONObject(i))
+                            onMessages?.invoke(messages.toList())
+                        }
+                    }
+                }
+                "cmd_bluetooth_status", "cmd_bluetooth_phone_status" -> Log.d(TAG, "${o.optString("type")} ${o.optString("data").take(300)}")
+                else -> Log.v(TAG, "msg ${o.optString("type")}")
+            }
+        } catch (e: Exception) { Log.w(TAG, "bad message: ${e.message} :: ${json.take(200)}") }
+    }
+
+    private fun addMessage(m: JSONObject) {
+        messages.addLast(PhoneMessage(m.optString("appName"), m.optString("titleValue"), m.optString("msgValue"), m.optLong("msgTime")))
+        while (messages.size > MAX_MESSAGES) messages.removeFirst()
     }
 
     companion object {
         private const val TAG = "RokidScenes"
         const val ASSIST_PKG = "com.rokid.os.sprite.assistserver"
         const val ASSIST_SERVICE = "com.rokid.os.sprite.assist.MasterAssistService"
-        private const val DESCRIPTOR = "com.rokid.os.sprite.assist.server.IAssistServer"
+        private const val SERVER_DESCRIPTOR = "com.rokid.os.sprite.assist.server.IAssistServer"
+        private const val CLIENT_DESCRIPTOR = "com.rokid.os.sprite.assist.client.IAssistClient"
+        private const val TRANSACTION_REGISTER_CLIENT = 1
         private const val TRANSACTION_CONTROL_MSG_JSON = 3
         private const val CMD_OPEN_SCENE = "cmd_open_scene_with_ignore_tips"
-        /** The server keys behaviour off the caller name; Rokid's launcher identifies as itself. */
+        private const val CMD_GET_BLE_STATUS = "cmd_get_ble_status"
+        /** Scene opening keys off the caller name; Rokid's launcher identifies as itself. */
         private const val CALLER_PKG = "com.rokid.os.sprite.launcher"
+        private const val MAX_MESSAGES = 5
 
         const val SCENE_TRANSLATE = "translate"
         const val SCENE_TELEPROMPTER = "word_tips"
         const val SCENE_SUBTITLES = "accessibility"
         const val SCENE_VISION_AI = "ai_chat"
         const val SCENE_NAVIGATION = "navigation"
+        const val SCENE_CAMERA = "camera_page"
+        const val SCENE_AUDIO_RECORD = "audio_record"
 
         const val ROKID_LAUNCHER_PKG = "com.rokid.os.sprite.launcher"
         const val ACT_MUSIC = "com.rokid.os.sprite.launcher.page.music.MusicPageActivity"

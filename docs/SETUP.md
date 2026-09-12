@@ -238,7 +238,7 @@ Grant two permissions once over USB. The first lets the brightness slider write 
 the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT
 ```
 
 The last two feed the return watcher. Rokid's assist server force-stops the foreground third-party app
@@ -253,6 +253,20 @@ The carousel mirrors Rokid's own list. Translation, Teleprompter, Subtitles, Nav
 Rokid "scenes", opened through the assist server's binder (`MasterAssistService`, exported without a
 permission) with the same JSON command Rokid's launcher sends. Music, Device info and Rokid home are
 exported activities in Rokid's launcher, started by explicit intent. Settings is Android's.
+
+### Messages panel and phone-link glyph
+
+The launcher registers itself as a client of Rokid's assist server (`registerClient` over the same binder)
+and receives the server's broadcast messages: `cmd_bluetooth_gatt_status` (Rokid app link up/down) and
+`cmd_bluetooth_gatt_normal_result` with `Ntf_SendNewMsg` / `Ntf_ResetMsgList` (phone notifications relayed
+by the Rokid app). The left-most bar button opens the Messages panel with the latest ones; double tap closes.
+The small phone glyph next to Wi-Fi is lit when the Rokid app link is up or, as a fallback, when the
+phone's Bluetooth audio (A2DP sink / HFP client) is connected. Needs the `BLUETOOTH_CONNECT` grant above.
+
+### Display crispness
+
+No text shadows, no translucent fills, and greys as solid colours: soft edges and alpha blends bloom on
+the micro-LED panel. Keep vector strokes at least ~1 dp after scaling (tiny glyphs need thicker strokes).
 
 ### Now-playing pill
 

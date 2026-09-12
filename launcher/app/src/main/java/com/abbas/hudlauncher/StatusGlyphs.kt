@@ -45,7 +45,7 @@ class WifiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
     var level = -1; set(v) { field = v.coerceIn(-1, 4); invalidate() }
 
     private val on = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFFFFFFF.toInt(); strokeCap = Paint.Cap.ROUND }
-    private val off = Paint(on).apply { color = 0x40FFFFFF }
+    private val off = Paint(on).apply { color = 0xFF505050.toInt() }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFFFFFFFF.toInt() }
 
     override fun onDraw(c: Canvas) {
@@ -59,7 +59,7 @@ class WifiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
             val p = if (level >= i + 1) on else off
             c.drawArc(RectF(cx - r, cy - r, cx + r, cy + r), 225f, 90f, false, p)
         }
-        dot.color = if (level >= 1) 0xFFFFFFFF.toInt() else 0x40FFFFFF
+        dot.color = if (level >= 1) 0xFFFFFFFF.toInt() else 0xFF505050.toInt()
         c.drawCircle(cx, cy - sw, sw * 0.9f, dot)
     }
 }

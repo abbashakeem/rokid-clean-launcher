@@ -96,6 +96,11 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@id/bar"
             app:layout_constraintBottom_toBottomOf="@id/bar">
+            <ImageView android:id="@+id/phone_link"
+                android:layout_width="11dp" android:layout_height="14dp"
+                android:layout_marginEnd="6dp"
+                android:src="@drawable/ic_phone_link" android:contentDescription="@null"
+                android:alpha="0.3" />
             <com.abbas.hudlauncher.WifiView android:id="@+id/wifi_icon"
                 android:layout_width="15dp" android:layout_height="11dp" />
         </LinearLayout>
@@ -108,15 +113,18 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintBottom_toBottomOf="parent">
+            <ImageButton android:id="@+id/btn_messages" style="@style/BarButton"
+                android:layout_marginEnd="12dp"
+                android:src="@drawable/ic_messages" android:contentDescription="@string/btn_messages" />
             <ImageButton android:id="@+id/btn_brightness" style="@style/BarButton"
                 android:src="@drawable/ic_brightness" android:contentDescription="@string/btn_brightness" />
             <ImageButton android:id="@+id/btn_home" style="@style/BarButton"
-                android:layout_marginStart="22dp" android:layout_marginEnd="22dp"
+                android:layout_marginStart="12dp" android:layout_marginEnd="12dp"
                 android:src="@drawable/ic_home" android:contentDescription="@string/btn_home" />
             <!-- Now-playing pill: shown instead of the home button while music is active -->
             <LinearLayout android:id="@+id/music_pill"
-                android:layout_width="118dp" android:layout_height="26dp"
-                android:layout_marginStart="12dp" android:layout_marginEnd="12dp"
+                android:layout_width="96dp" android:layout_height="26dp"
+                android:layout_marginStart="8dp" android:layout_marginEnd="8dp"
                 android:orientation="vertical"
                 android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="3dp"
                 android:background="@drawable/bar_button_bg"
@@ -167,6 +175,26 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="@string/picker_hint" />
+        </LinearLayout>
+
+        <!-- Messages panel: last phone notifications relayed by the Rokid app -->
+        <LinearLayout android:id="@+id/messages_panel"
+            android:layout_width="match_parent" android:layout_height="0dp"
+            android:orientation="vertical"
+            android:background="@color/hud_black"
+            android:visibility="gone"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/bar">
+            <TextView android:id="@+id/messages_title" style="@style/HudText.Strip"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="@string/btn_messages" />
+            <LinearLayout android:id="@+id/messages_rows"
+                android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+                android:layout_marginTop="6dp"
+                android:orientation="vertical"
+                android:showDividers="middle" android:divider="@drawable/row_divider" />
         </LinearLayout>
 
         <!-- Brightness picker overlay (hidden until the left button is pressed) -->

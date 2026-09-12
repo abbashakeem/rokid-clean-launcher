@@ -61,7 +61,7 @@ class AppPicker(
                 val centre = offset == 0
                 view.scaleX = if (centre) 1.25f else 0.85f
                 view.scaleY = view.scaleX
-                view.alpha = if (centre) 1f else 0.55f
+                view.imageTintList = android.content.res.ColorStateList.valueOf(if (centre) 0xFFFFFFFF.toInt() else 0xFF8C8C8C.toInt())
                 view.setOnClickListener { selected = idx; launchSelected() }
             }
             strip.addView(view)
@@ -80,6 +80,8 @@ class AppPicker(
         AppEntry("Teleprompter", R.drawable.app_prompter) { scenes.openScene(RokidScenes.SCENE_TELEPROMPTER) },
         AppEntry("Subtitles", R.drawable.app_subtitles) { scenes.openScene(RokidScenes.SCENE_SUBTITLES) },
         AppEntry("Music", R.drawable.app_music, action = activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_MUSIC)),
+        AppEntry("Camera", R.drawable.app_camera) { scenes.openScene(RokidScenes.SCENE_CAMERA) },
+        AppEntry("Sound recorder", R.drawable.app_recorder) { scenes.openScene(RokidScenes.SCENE_AUDIO_RECORD) },
         AppEntry("Navigation", R.drawable.app_navigation) { scenes.openScene(RokidScenes.SCENE_NAVIGATION) },
         AppEntry("Vision AI", R.drawable.app_vision) { scenes.openScene(RokidScenes.SCENE_VISION_AI) },
         AppEntry("Device info", R.drawable.app_info, action = activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_DEVICE_INFO)),

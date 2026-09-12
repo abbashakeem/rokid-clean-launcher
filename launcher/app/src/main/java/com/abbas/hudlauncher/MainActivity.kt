@@ -44,7 +44,11 @@ class MainActivity : AppCompatActivity() {
     // agenda + bar
     private lateinit var agendaView: LinearLayout
     private lateinit var barView: View
+    private lateinit var btnMessages: ImageButton
     private lateinit var btnBrightness: ImageButton
+    private lateinit var messagesPanel: View
+    private lateinit var messagesRows: LinearLayout
+    private lateinit var phoneLink: ImageView
     private lateinit var btnHome: ImageButton
     private lateinit var btnApps: ImageButton
     // brightness panel
@@ -102,7 +106,11 @@ class MainActivity : AppCompatActivity() {
         wxViews = listOf(wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         agendaView = findViewById(R.id.agenda)
         barView = findViewById(R.id.bar)
+        btnMessages = findViewById(R.id.btn_messages)
         btnBrightness = findViewById(R.id.btn_brightness)
+        messagesPanel = findViewById(R.id.messages_panel)
+        messagesRows = findViewById(R.id.messages_rows)
+        phoneLink = findViewById(R.id.phone_link)
         btnHome = findViewById(R.id.btn_home)
         btnApps = findViewById(R.id.btn_apps)
         batteryIcon = findViewById(R.id.battery_icon)
@@ -116,6 +124,8 @@ class MainActivity : AppCompatActivity() {
         brightness = BrightnessController(this)
         sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
         scenes = RokidScenes(this)
+        scenes.onPhoneLink = { renderPhoneLink() }
+        scenes.onMessages = { if (messagesPanel.visibility == View.VISIBLE) renderMessages(it) }
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
             findViewById(R.id.app_picker_title), scenes)
         musicPill = findViewById(R.id.music_pill)
@@ -127,13 +137,14 @@ class MainActivity : AppCompatActivity() {
         headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
-        listOf(btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
+        listOf(btnMessages, btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
         ticker = ClockTicker { face ->
             clockView.text = face.time
             amPmView.text = face.amPm
             dateStrip.text = face.dateStrip
         }
 
+        btnMessages.setOnClickListener { openMessages() }
         btnBrightness.setOnClickListener { showBrightness() }
         btnHome.setOnClickListener { refreshNow() }
         btnApps.setOnClickListener { openAppPicker() }
@@ -144,6 +155,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hideSystemBars()
         if (appPicker.isOpen) closeAppPicker()
+        if (messagesPanel.visibility == View.VISIBLE) closeMessages()
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
@@ -152,7 +164,7 @@ class MainActivity : AppCompatActivity() {
         media.start()
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         statusJob = lifecycleScope.launch {
-            while (isActive) { updateWifi(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
+            while (isActive) { updateWifi(); renderPhoneLink(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
         }
         weatherJob = lifecycleScope.launch {
             while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
@@ -201,6 +213,21 @@ class MainActivity : AppCompatActivity() {
         if (hadFocus) musicPill.requestFocus()
     }
 
+    /** Lit when the Rokid app link (GATT) is up, or as a fallback when the phone's Bluetooth audio is connected. */
+    @Suppress("MissingPermission")
+    private fun renderPhoneLink() {
+        val audioLinked = try {
+            val bt = (getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter
+            // The glasses are the audio *sink* / HFP *client*; those profile ids are hidden constants.
+            val profiles = intArrayOf(A2DP_SINK, HEADSET_CLIENT, android.bluetooth.BluetoothProfile.A2DP, android.bluetooth.BluetoothProfile.HEADSET)
+            val states = profiles.map { it to bt?.getProfileConnectionState(it) }
+            bt != null && bt.isEnabled && states.any { it.second == android.bluetooth.BluetoothProfile.STATE_CONNECTED }
+        } catch (e: Exception) { Log.w(TAG, "bt query failed: $e"); false }
+        val linked = scenes.phoneLinked || audioLinked
+        Log.d(TAG, "phone link: gatt=${scenes.phoneLinked} audio=$audioLinked")
+        phoneLink.alpha = if (linked) 1f else 0.3f
+    }
+
     @Suppress("DEPRECATION")
     private fun updateWifi() {
         // networkId/SSID need location permission on API 29+, so check connectivity via the active network
@@ -239,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         wxCondition.text = w.condition
         wxFeels.text = getString(R.string.feels_like, w.feelsLike)
         wxIcon.setImageResource(w.iconRes)
-        wxViews.forEach { it.alpha = if (w.isMock) 0.5f else 1f }
+        wxViews.forEach { it.alpha = if (w.isMock) 0.6f else 1f }   // mock data reads dimmer
     }
 
     private fun renderAgenda(agenda: Agenda) {
@@ -270,6 +297,39 @@ class MainActivity : AppCompatActivity() {
         try { startActivity(intent) } catch (e: Exception) {
             Log.w(TAG, "Rokid launcher not found: ${e.message}")
             Toast.makeText(this, "Rokid launcher not found", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openMessages() {
+        headerViews.forEach { it.visibility = View.INVISIBLE }
+        agendaView.visibility = View.INVISIBLE
+        messagesPanel.visibility = View.VISIBLE
+        renderMessages(scenes.messages.toList())
+    }
+
+    private fun closeMessages() {
+        messagesPanel.visibility = View.GONE
+        headerViews.forEach { it.visibility = View.VISIBLE }
+        agendaView.visibility = View.VISIBLE
+        btnMessages.requestFocus()
+    }
+
+    private fun renderMessages(list: List<PhoneMessage>) {
+        messagesRows.removeAllViews()
+        val inflater = LayoutInflater.from(this)
+        val fmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US)
+        if (list.isEmpty()) {
+            val row = inflater.inflate(R.layout.row_message, messagesRows, false)
+            row.findViewById<TextView>(R.id.msg_head).text = ""
+            row.findViewById<TextView>(R.id.msg_body).text = getString(R.string.no_messages)
+            messagesRows.addView(row)
+        }
+        for (m in list.asReversed().take(4)) {
+            val row = inflater.inflate(R.layout.row_message, messagesRows, false)
+            val time = if (m.time > 0) fmt.format(java.util.Date(m.time)) else ""
+            row.findViewById<TextView>(R.id.msg_head).text = listOf(time, m.app).filter { it.isNotBlank() }.joinToString("  ")
+            row.findViewById<TextView>(R.id.msg_body).text = listOf(m.title, m.text).filter { it.isNotBlank() }.joinToString(" — ")
+            messagesRows.addView(row)
         }
     }
 
@@ -350,6 +410,7 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_NOTIFICATION -> Unit                                   // touch start: only wakes/resets idle
             KeyEvent.KEYCODE_BACK -> when {                                          // double tap
                 appPicker.isOpen -> closeAppPicker()
+                messagesPanel.visibility == View.VISIBLE -> closeMessages()
                 panelOpen -> hideBrightness()
                 else -> sleeper.sleepNow()
             }
@@ -373,8 +434,8 @@ class MainActivity : AppCompatActivity() {
         } else if (panelOpen) {
             adjustBrightness(direction * BrightnessController.STEP)
         } else {
-            val buttons = listOf(btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
-            val i = buttons.indexOf(currentFocus).let { if (it < 0) 1 else it }
+            val buttons = listOf(btnMessages, btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
+            val i = buttons.indexOf(currentFocus).let { if (it < 0) 2 else it }
             buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }
     }
@@ -389,6 +450,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "HudMain"
+        private const val A2DP_SINK = 11        // BluetoothProfile.A2DP_SINK (hidden)
+        private const val HEADSET_CLIENT = 16   // BluetoothProfile.HEADSET_CLIENT (hidden)
         private const val ROKID_LAUNCHER_PKG = "com.rokid.os.sprite.launcher"
         private const val ROKID_LAUNCHER_ACTIVITY = "com.rokid.os.sprite.launcher.main.SpriteMainActivity"
     }
