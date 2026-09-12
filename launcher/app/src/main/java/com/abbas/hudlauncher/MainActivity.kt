@@ -3,11 +3,12 @@ package com.abbas.hudlauncher
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
-import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -50,13 +51,16 @@ class MainActivity : AppCompatActivity() {
     private val weatherRepo = WeatherRepository()
     private lateinit var calendarRepo: CalendarRepository
     private lateinit var brightness: BrightnessController
+    private lateinit var sleeper: DisplaySleeper
+    private val tapHandler = Handler(Looper.getMainLooper())
+    private var pendingTap: Runnable? = null
+    private var lastTapAt = 0L
     private var weatherJob: Job? = null
     private var calendarJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
 
         clockView = findViewById(R.id.clock)
@@ -79,6 +83,10 @@ class MainActivity : AppCompatActivity() {
 
         calendarRepo = CalendarRepository(this)
         brightness = BrightnessController(this)
+        sleeper = DisplaySleeper(this, Config.IDLE_OFF_MS, findViewById(R.id.band))
+        // no click sounds on the touchpad bar
+        window.decorView.isSoundEffectsEnabled = false
+        listOf(btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
         ticker = ClockTicker { face ->
             clockView.text = face.time
             dateDay.text = face.dayAbbrev
@@ -95,6 +103,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         hideSystemBars()
         ticker.start()
+        sleeper.onResume()
         weatherJob = lifecycleScope.launch {
             while (isActive) { renderWeather(weatherRepo.fetch()); delay(Config.WEATHER_REFRESH_MS) }
         }
@@ -106,6 +115,13 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         ticker.stop(); weatherJob?.cancel(); calendarJob?.cancel()
+        sleeper.onPause()
+    }
+
+    /** Any touch/key restarts the 5 s idle timer. */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        sleeper.touch()
     }
 
     private fun refreshNow() {
@@ -193,6 +209,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         Log.d(TAG, "keyDown $keyCode panel=${brightnessPanel.visibility == View.VISIBLE}")
+        sleeper.touch()
         if (brightnessPanel.visibility == View.VISIBLE) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_DOWN -> { adjustBrightness(-BrightnessController.STEP); return true }
@@ -200,8 +217,35 @@ class MainActivity : AppCompatActivity() {
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_BACK -> { hideBrightness(); return true }
             }
         }
-        if (keyCode == KeyEvent.KEYCODE_BACK) return true   // launcher swallows Back
-        return super.onKeyDown(keyCode, event)              // DPAD moves focus between bar buttons
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { onTap(); return true }
+            KeyEvent.KEYCODE_BACK -> return true                // launcher swallows Back
+        }
+        return super.onKeyDown(keyCode, event)                  // DPAD moves focus between bar buttons
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        // We handle taps ourselves in onKeyDown; stop the focused button from also clicking.
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
+    /**
+     * Single tap = click the focused button (after a short wait to rule out a double tap).
+     * Double tap = display off, like Rokid's launcher.
+     */
+    private fun onTap() {
+        val now = System.currentTimeMillis()
+        if (now - lastTapAt <= Config.DOUBLE_TAP_MS) {
+            pendingTap?.let { tapHandler.removeCallbacks(it) }
+            pendingTap = null
+            lastTapAt = 0L
+            sleeper.sleepNow()
+            return
+        }
+        lastTapAt = now
+        pendingTap = Runnable { currentFocus?.performClick(); pendingTap = null }
+            .also { tapHandler.postDelayed(it, Config.DOUBLE_TAP_MS + 30) }
     }
 
     private fun hideSystemBars() {
