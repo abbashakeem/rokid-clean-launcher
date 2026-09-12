@@ -72,14 +72,14 @@ Render deploys from a Git repo. Create an empty **private** repository on https:
 (no README), then from the project root:
 
 ```bash
-git remote add origin https://github.com/<you>/rokid-launcher.git && git push -u origin main
+git remote add origin https://github.com/abbashakeem/rokid-clean-launcher.git && git push -u origin main
 ```
 
 `.gitignore` already excludes `.env`, `local.properties`, the venv and the `tools/` JDK, so no secrets go up.
 
 ### A3. Create the service (Blueprint)
 
-1. Render dashboard → **New +** → **Blueprint** → connect GitHub → pick `rokid-launcher`.
+1. Render dashboard → **New +** → **Blueprint** → connect GitHub → pick `rokid-clean-launcher`.
    Render reads `backend/render.yaml`: Docker runtime, free plan, health check on `/health`.
 2. It will prompt for the variables marked `sync: false`. Fill in:
    `API_KEY` (from A1), `ICLOUD_USER`, `ICLOUD_APP_PASSWORD`, `CALENDARS` (Part B),
