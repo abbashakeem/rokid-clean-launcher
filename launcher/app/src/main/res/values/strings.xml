@@ -3,7 +3,7 @@
     <string name="weather_loading">--°</string>
     <string name="no_events">No upcoming events</string>
     <string name="calendar_offline">Calendar offline</string>
-    <string name="all_day">All day</string>
+    <string name="all_day">all day</string>
     <string name="feels_like">Feels like %1$d°</string>
     <string name="btn_brightness">Brightness</string>
     <string name="btn_home">Home</string>

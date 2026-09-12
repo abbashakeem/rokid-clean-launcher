@@ -12,12 +12,13 @@ import java.util.Locale
 import java.util.TimeZone
 
 data class AgendaEvent(val title: String, val start: Date, val allDay: Boolean) {
-    val dayAbbrev: String get() = DAY_FMT.format(start)          // Wed
-    val timeText: String get() = TIME_FMT.format(start)          // 06:00 AM
+    /** "Sun  6:00 AM" (two spaces) or "Fri  all day" for the fixed mono column. */
+    fun whenText(allDayLabel: String): String =
+        DAY_FMT.format(start) + "  " + if (allDay) allDayLabel else TIME_FMT.format(start)
 
     companion object {
         private val DAY_FMT = SimpleDateFormat("EEE", Locale.US)
-        private val TIME_FMT = SimpleDateFormat("hh:mm a", Locale.US)
+        private val TIME_FMT = SimpleDateFormat("h:mm a", Locale.US)
     }
 }
 

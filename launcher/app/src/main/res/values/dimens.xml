@@ -4,8 +4,7 @@
     <dimen name="band_height">218dp</dimen>
     <dimen name="band_side">6dp</dimen>
 
-    <dimen name="col_day">32dp</dimen>
-    <dimen name="col_time">58dp</dimen>
-    <dimen name="row_gap">3dp</dimen>
+    <dimen name="col_when">88dp</dimen>
+    <dimen name="row_gap">5dp</dimen>
     <dimen name="bar_icon">24dp</dimen>
 </resources>

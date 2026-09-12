@@ -26,8 +26,8 @@ class MainActivity : AppCompatActivity() {
 
     // header
     private lateinit var clockView: TextView
-    private lateinit var dateDay: TextView
-    private lateinit var dateNum: TextView
+    private lateinit var amPmView: TextView
+    private lateinit var dateStrip: TextView
     private lateinit var wxCity: TextView
     private lateinit var wxTemp: TextView
     private lateinit var wxCondition: TextView
@@ -61,8 +61,8 @@ class MainActivity : AppCompatActivity() {
         hideSystemBars()
 
         clockView = findViewById(R.id.clock)
-        dateDay = findViewById(R.id.date_day)
-        dateNum = findViewById(R.id.date_num)
+        amPmView = findViewById(R.id.ampm)
+        dateStrip = findViewById(R.id.date_strip)
         wxCity = findViewById(R.id.wx_city)
         wxTemp = findViewById(R.id.wx_temp)
         wxCondition = findViewById(R.id.wx_condition)
@@ -85,14 +85,14 @@ class MainActivity : AppCompatActivity() {
             findViewById(R.id.app_picker_title),
             builtIns = listOf(AppEntry(getString(R.string.btn_brightness),
                 getDrawable(R.drawable.ic_brightness)!!, action = { showBrightness() })))
-        headerViews = listOf(clockView, dateDay, dateNum, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
+        headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
         listOf(btnBrightness, btnHome, btnApps).forEach { it.isSoundEffectsEnabled = false }
         ticker = ClockTicker { face ->
             clockView.text = face.time
-            dateDay.text = face.dayAbbrev
-            dateNum.text = face.dayMonth
+            amPmView.text = face.amPm
+            dateStrip.text = face.dateStrip
         }
 
         btnBrightness.setOnClickListener { showBrightness() }
@@ -165,9 +165,7 @@ class MainActivity : AppCompatActivity() {
         }
         for (ev in agenda.events) {
             val row = inflater.inflate(R.layout.row_event, agendaView, false)
-            row.findViewById<TextView>(R.id.col_day).text = ev.dayAbbrev
-            row.findViewById<TextView>(R.id.col_time).text =
-                if (ev.allDay) getString(R.string.all_day) else ev.timeText
+            row.findViewById<TextView>(R.id.col_when).text = ev.whenText(getString(R.string.all_day))
             row.findViewById<TextView>(R.id.col_title).text = ev.title
             agendaView.addView(row)
         }
