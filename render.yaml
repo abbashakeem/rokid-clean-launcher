@@ -30,6 +30,6 @@ services:
       - key: UNITS
         value: metric
       - key: TZ
-        value: Europe/London
+        value: Australia/Melbourne
       - key: SYNC_INTERVAL_MIN
         value: "15"

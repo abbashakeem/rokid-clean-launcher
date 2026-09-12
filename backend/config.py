@@ -13,11 +13,11 @@ class Settings(BaseSettings):
     lookahead_days: int = 7
 
     owm_api_key: str = ""
-    lat: float = 51.5074
-    lon: float = -0.1278
+    lat: float = -37.8136
+    lon: float = 144.9631
     units: str = "metric"        # metric | imperial
 
-    tz: str = "Europe/London"
+    tz: str = "Australia/Melbourne"
     data_dir: str = "./data"
 
     @property
