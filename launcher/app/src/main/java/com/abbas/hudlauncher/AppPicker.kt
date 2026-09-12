@@ -11,7 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /** One carousel entry: label, outline glyph, and what happens on tap. */
-data class AppEntry(val label: String, val iconRes: Int, val action: () -> Unit)
+data class AppEntry(val label: String, val iconRes: Int, val watchReturn: Boolean = true, val action: () -> Unit)
 
 /**
  * Rokid-style app picker: a horizontal carousel with the selected item centred and enlarged.
@@ -41,6 +41,8 @@ class AppPicker(
     fun launchSelected() {
         val app = apps.getOrNull(selected) ?: return
         close()
+        // Rokid scenes/pages finish() onto Rokid's own home; the watcher brings us back afterwards.
+        if (app.watchReturn) try { ReturnWatchService.start(context) } catch (e: Exception) { Log.w(TAG, "watcher: ${e.message}") }
         try { app.action() } catch (e: Exception) { Log.w(TAG, "cannot open ${app.label}: ${e.message}") }
     }
 
@@ -77,12 +79,12 @@ class AppPicker(
         AppEntry("Translation", R.drawable.app_translate) { scenes.openScene(RokidScenes.SCENE_TRANSLATE) },
         AppEntry("Teleprompter", R.drawable.app_prompter) { scenes.openScene(RokidScenes.SCENE_TELEPROMPTER) },
         AppEntry("Subtitles", R.drawable.app_subtitles) { scenes.openScene(RokidScenes.SCENE_SUBTITLES) },
-        AppEntry("Music", R.drawable.app_music, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_MUSIC)),
+        AppEntry("Music", R.drawable.app_music, action = activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_MUSIC)),
         AppEntry("Navigation", R.drawable.app_navigation) { scenes.openScene(RokidScenes.SCENE_NAVIGATION) },
         AppEntry("Vision AI", R.drawable.app_vision) { scenes.openScene(RokidScenes.SCENE_VISION_AI) },
-        AppEntry("Device info", R.drawable.app_info, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_DEVICE_INFO)),
-        AppEntry("Settings", R.drawable.app_settings, activity("com.android.settings", "com.android.settings.Settings")),
-        AppEntry("Rokid home", R.drawable.app_rokid, activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_HOME)),
+        AppEntry("Device info", R.drawable.app_info, action = activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_DEVICE_INFO)),
+        AppEntry("Settings", R.drawable.app_settings, watchReturn = false, action = activity("com.android.settings", "com.android.settings.Settings")),
+        AppEntry("Rokid home", R.drawable.app_rokid, watchReturn = false, action = activity(RokidScenes.ROKID_LAUNCHER_PKG, RokidScenes.ACT_HOME)),
     )
 
     companion object {

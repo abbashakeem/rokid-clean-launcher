@@ -147,6 +147,7 @@ class MainActivity : AppCompatActivity() {
         ticker.start()
         sleeper.onResume()
         setSystemClickSounds(false)
+        ReturnWatchService.stop(this)   // we are back in front; no need to keep watching
         scenes.bind()
         media.start()
         registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
