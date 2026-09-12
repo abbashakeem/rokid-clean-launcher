@@ -1,0 +1,22 @@
+# secrets
+.env
+launcher/local.properties
+*.keystore
+*.jks
+
+# python
+backend/.venv/
+backend/__pycache__/
+backend/data/
+*.pyc
+
+# android / gradle
+launcher/.gradle/
+launcher/build/
+launcher/app/build/
+launcher/.idea/
+launcher/*.iml
+.DS_Store
+
+# local toolchain (JDK downloaded by docs/SETUP.md fallback)
+tools/

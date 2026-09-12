@@ -1,0 +1,7 @@
+<resources>
+    <!-- Pure black renders fully transparent on the Rokid waveguide -->
+    <color name="hud_black">#000000</color>
+    <color name="hud_white">#FFFFFF</color>
+    <color name="hud_dim">#B3FFFFFF</color>
+    <color name="hud_shadow">#000000</color>
+</resources>

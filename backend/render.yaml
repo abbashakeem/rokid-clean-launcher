@@ -1,0 +1,35 @@
+# Render Blueprint: New + → Blueprint → pick this repo. Free plan, Docker runtime.
+services:
+  - type: web
+    name: rokid-hud-backend
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: DATA_DIR
+        value: /app/data
+      - key: API_KEY
+        sync: false          # "sync: false" = you type the value in the Render dashboard
+      - key: ICLOUD_USER
+        sync: false
+      - key: ICLOUD_APP_PASSWORD
+        sync: false
+      - key: CALENDARS
+        sync: false
+      - key: OWM_API_KEY
+        sync: false
+      - key: LAT
+        sync: false
+      - key: LON
+        sync: false
+      - key: UNITS
+        value: metric
+      - key: TZ
+        value: Europe/London
+      - key: SYNC_INTERVAL_MIN
+        value: "15"

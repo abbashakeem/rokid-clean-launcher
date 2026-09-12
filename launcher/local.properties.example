@@ -1,0 +1,4 @@
+# Copy to local.properties (git-ignored). sdk.dir is filled automatically if ANDROID_HOME is set.
+# sdk.dir=/opt/homebrew/share/android-commandlinetools
+HUD_BASE_URL=https://rokid-hud-backend.onrender.com
+HUD_API_KEY=paste-the-same-API_KEY-you-set-on-render
