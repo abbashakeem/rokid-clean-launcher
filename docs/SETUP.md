@@ -238,8 +238,14 @@ Grant two permissions once over USB. The first lets the brightness slider write 
 the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow
 ```
+
+The last two feed the return watcher. Rokid's assist server force-stops the foreground third-party app
+when it opens a scene, then shows Rokid's home with the scene page on top, and double-tap only finishes
+the page. The system re-binds our notification listener within a fraction of a second of the kill, so the
+watcher lives there: armed via SharedPreferences before the scene call, it polls usage events and
+relaunches the HUD as soon as Rokid's home resumes after the page.
 
 ### App picker contents
 

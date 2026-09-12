@@ -42,7 +42,7 @@ class AppPicker(
         val app = apps.getOrNull(selected) ?: return
         close()
         // Rokid scenes/pages finish() onto Rokid's own home; the watcher brings us back afterwards.
-        if (app.watchReturn) try { ReturnWatchService.start(context) } catch (e: Exception) { Log.w(TAG, "watcher: ${e.message}") }
+        if (app.watchReturn) ReturnWatch.arm(context)
         try { app.action() } catch (e: Exception) { Log.w(TAG, "cannot open ${app.label}: ${e.message}") }
     }
 
