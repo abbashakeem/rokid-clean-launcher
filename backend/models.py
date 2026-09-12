@@ -19,6 +19,10 @@ class CalendarResponse(BaseModel):
 
 class WeatherResponse(BaseModel):
     temp: int
-    condition: str
+    feels_like: int
+    condition: str          # OWM "main" group, e.g. Clouds
+    description: str        # OWM description, e.g. "scattered clouds"
+    icon: str               # OWM icon code, e.g. 04d (d=day, n=night)
+    city: str
     text: str
     fetched_at: datetime

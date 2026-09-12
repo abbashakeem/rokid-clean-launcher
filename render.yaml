@@ -29,6 +29,8 @@ services:
         sync: false
       - key: UNITS
         value: metric
+      - key: CITY
+        value: Melbourne
       - key: TZ
         value: Australia/Melbourne
       - key: SYNC_INTERVAL_MIN

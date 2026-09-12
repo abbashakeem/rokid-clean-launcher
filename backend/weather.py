@@ -34,11 +34,18 @@ async def get_weather() -> WeatherResponse:
         data = resp.json()
 
     temp = round(data["main"]["temp"])
-    condition = data["weather"][0]["main"] if data.get("weather") else "Unknown"
+    feels = round(data["main"].get("feels_like", data["main"]["temp"]))
+    w = data["weather"][0] if data.get("weather") else {}
+    condition = w.get("main", "Unknown")
+    description = w.get("description", condition).capitalize()
     unit = "°F" if settings.units == "imperial" else "°C"
     _cache = WeatherResponse(
         temp=temp,
+        feels_like=feels,
         condition=condition,
+        description=description,
+        icon=w.get("icon", "01d"),
+        city=settings.city or data.get("name", ""),
         text=f"{temp}{unit} · {condition}",
         fetched_at=now,
     )

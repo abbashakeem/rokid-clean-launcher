@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     lat: float = -37.8136
     lon: float = 144.9631
     units: str = "metric"        # metric | imperial
+    city: str = ""               # display name override; defaults to OWM's station name
 
     tz: str = "Australia/Melbourne"
     data_dir: str = "./data"
