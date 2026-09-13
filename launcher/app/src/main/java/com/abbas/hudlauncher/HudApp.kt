@@ -13,7 +13,6 @@ class HudApp : Application() {
     lateinit var scenes: RokidScenes; private set
     lateinit var configRepo: ConfigRepository; private set
     lateinit var ble: com.abbas.hudlauncher.ble.BleServer; private set
-    lateinit var bleCentral: com.abbas.hudlauncher.ble.BleCentral; private set
 
     override fun onCreate() {
         super.onCreate()
@@ -39,19 +38,16 @@ class HudApp : Application() {
 
         // This firmware can't advertise, so we also scan as a central for the iPhone app acting as
         // the peripheral. Diagnostic logging on for now to confirm the central role works.
-        try {
-            bleCentral = com.abbas.hudlauncher.ble.BleCentral(this)
-            bleCentral.onMessage = { type, data ->
-                when (type) {
-                    "calendar" -> data.optJSONArray("events")?.let {
-                        com.abbas.hudlauncher.ble.BlePhoneData.storeCalendar(this, it)
-                        Log.d(TAG, "BLE calendar from phone: ${it.length()} events")
-                    }
-                    else -> Log.d(TAG, "BLE message: $type")
+        com.abbas.hudlauncher.ble.BleScanService.onMessage = { type, data ->
+            when (type) {
+                "calendar" -> data.optJSONArray("events")?.let {
+                    com.abbas.hudlauncher.ble.BlePhoneData.storeCalendar(this, it)
+                    Log.d(TAG, "BLE calendar from phone: ${it.length()} events")
                 }
+                else -> Log.d(TAG, "BLE message: $type")
             }
-            bleCentral.startScan()
-        } catch (e: Exception) { Log.w(TAG, "BLE scan failed: ${e.message}") }
+        }
+        com.abbas.hudlauncher.ble.BleScanService.start(this)
     }
 
     private var lastTakeOver = 0L

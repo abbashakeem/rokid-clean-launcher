@@ -19,8 +19,8 @@ final class BLEClient: NSObject, ObservableObject {
     var onReady: (() -> Void)?
 
     // Must match BleServer.kt / BleCentral.kt on the glasses.
-    private let hudService = CBUUID(string: "6E5D0001-B00B-4B1D-8B00-0000000000A1")
-    private let hudNotify  = CBUUID(string: "6E5D0003-B00B-4B1D-8B00-0000000000A1")
+    private let hudService = CBUUID(string: "6E400001-B5A3-F393-E0A9-77656B657962")
+    private let hudNotify  = CBUUID(string: "6E400003-B5A3-F393-E0A9-77656B657962")
 
     private var manager: CBPeripheralManager!
     private var notifyChar: CBMutableCharacteristic!
@@ -39,11 +39,9 @@ final class BLEClient: NSObject, ObservableObject {
             type: hudNotify, properties: [.notify], value: nil, permissions: [.readable])
         let svc = CBMutableService(type: hudService, primary: true)
         svc.characteristics = [notifyChar]
+        // Advertise only once the service is actually published (see didAdd). Advertising
+        // immediately after add() is a race and can leave us advertising without the service.
         manager.add(svc)
-        manager.startAdvertising([
-            CBAdvertisementDataServiceUUIDsKey: [hudService],
-            CBAdvertisementDataLocalNameKey: "HUD",
-        ])
         state = .advertising
     }
 
@@ -102,6 +100,14 @@ extension BLEClient: CBPeripheralManagerDelegate {
     func peripheralManagerIsReady(toUpdateSubscribers p: CBPeripheralManager) { flush() }
 
     func peripheralManager(_ p: CBPeripheralManager, didAdd service: CBService, error: Error?) {
-        if let error { state = .error("publish failed: \(error.localizedDescription)") }
+        if let error {
+            state = .error("publish failed: \(error.localizedDescription)")
+            return
+        }
+        p.startAdvertising([
+            CBAdvertisementDataServiceUUIDsKey: [hudService],
+            CBAdvertisementDataLocalNameKey: "HUD",
+        ])
+        state = .advertising
     }
 }

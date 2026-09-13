@@ -205,10 +205,12 @@ class BleServer(private val context: Context) {
         private const val MAX_MESSAGE = 256 * 1024
         private const val INFO = """{"app":"hud-launcher","proto":1}"""
 
-        val SERVICE: UUID = UUID.fromString("6e5d0001-b00b-4b1d-8b00-0000000000a1")
-        val CHAR_WRITE: UUID = UUID.fromString("6e5d0002-b00b-4b1d-8b00-0000000000a1")
-        val CHAR_NOTIFY: UUID = UUID.fromString("6e5d0003-b00b-4b1d-8b00-0000000000a1")
-        val CHAR_INFO: UUID = UUID.fromString("6e5d0004-b00b-4b1d-8b00-0000000000a1")
+        // Nordic UART Service UUIDs. A private UUID also works in theory, but NUS is known-good on
+        // this firmware (RokidKeyboard uses it for the same iPhone-to-glasses link).
+        val SERVICE: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-77656b657962")
+        val CHAR_WRITE: UUID = UUID.fromString("6e400002-b5a3-f393-e0a9-77656b657962")
+        val CHAR_NOTIFY: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-77656b657962")
+        val CHAR_INFO: UUID = UUID.fromString("6e400004-b5a3-f393-e0a9-77656b657962")
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }
