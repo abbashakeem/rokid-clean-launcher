@@ -207,6 +207,7 @@ class MainActivity : AppCompatActivity() {
         media = MediaWatcher(this) { np -> runOnUiThread { renderMusic(np) } }
         // debug nav feed lives for the whole activity, like the real binder callbacks
         if (BuildConfig.DEBUG) registerReceiver(debugNavReceiver, IntentFilter("com.abbas.hudlauncher.DEBUG_NAV"), Context.RECEIVER_EXPORTED)
+        if (BuildConfig.DEBUG) registerReceiver(micTestReceiver, IntentFilter("com.abbas.hudlauncher.MIC_TEST"), Context.RECEIVER_EXPORTED)
         headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
@@ -287,6 +288,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (BuildConfig.DEBUG) try { unregisterReceiver(debugNavReceiver) } catch (_: Exception) {}
+        if (BuildConfig.DEBUG) try { unregisterReceiver(micTestReceiver) } catch (_: Exception) {}
     }
 
     /** Rokid shows a now-playing pill in the bar while Bluetooth music is active; ours replaces Home. */
@@ -597,6 +599,11 @@ class MainActivity : AppCompatActivity() {
      *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road "Chapel St" --ei remain 4200 --ei secs 780 --ei speed 42
      *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --es cmd stop
      */
+    /** Debug-only: see MicProbe. */
+    private val micTestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) { MicProbe.run() }
+    }
+
     private val debugNavReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             Log.d(TAG, "debug nav broadcast ${i.extras?.keySet()?.joinToString()}")

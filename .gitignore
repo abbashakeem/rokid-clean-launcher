@@ -20,3 +20,4 @@ launcher/*.iml
 
 # local toolchain (JDK downloaded by docs/SETUP.md fallback); tools/rokid-link is source
 tools/jdk17/
+launcher/app/libs/*.aar

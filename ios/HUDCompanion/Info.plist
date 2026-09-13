@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with Xcode's generated Info.plist (GENERATE_INFOPLIST_FILE stays YES).
+	     Array-valued keys such as UIBackgroundModes cannot be expressed as INFOPLIST_KEY_*
+	     build settings; the earlier attempt to do so never reached the built app. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-peripheral</string>
+	</array>
+</dict>
+</plist>

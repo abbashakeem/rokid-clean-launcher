@@ -52,6 +52,8 @@ android {
 }
 
 dependencies {
+    // Rokid's glasses-side bridge, used only by MicProbe to test microphone access.
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
