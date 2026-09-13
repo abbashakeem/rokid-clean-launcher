@@ -21,9 +21,17 @@ final class BLEClient: NSObject, ObservableObject {
     // Must match BleServer.kt / BleCentral.kt on the glasses.
     private let hudService = CBUUID(string: "6E400001-B5A3-F393-E0A9-77656B657962")
     private let hudNotify  = CBUUID(string: "6E400003-B5A3-F393-E0A9-77656B657962")
+    // Glasses -> phone. Audio for the assistant rides this; kept encoding-agnostic because raw
+    // 16kHz PCM is 32KB/s and marginal over BLE, so it will likely carry compressed frames.
+    private let hudWrite   = CBUUID(string: "6E400002-B5A3-F393-E0A9-77656B657962")
 
     private var manager: CBPeripheralManager!
     private var notifyChar: CBMutableCharacteristic!
+    private var writeChar: CBMutableCharacteristic!
+    /// Reassembly buffer for the length-prefixed stream coming from the glasses.
+    private var inbound = Data()
+    /// Called with each complete message the glasses send us.
+    var onMessage: ((String, [String: Any]) -> Void)?
     private var queue: [Data] = []
     private var subscribedCentral: CBCentral?
     /// Guards against publishing the service more than once (see startAdvertising).
@@ -68,8 +76,11 @@ final class BLEClient: NSObject, ObservableObject {
         // [.readable] here can stop iOS reporting the central's subscribe.
         notifyChar = CBMutableCharacteristic(
             type: hudNotify, properties: [.notify], value: nil, permissions: [])
+        writeChar = CBMutableCharacteristic(
+            type: hudWrite, properties: [.write, .writeWithoutResponse], value: nil,
+            permissions: [.writeable])
         let svc = CBMutableService(type: hudService, primary: true)
-        svc.characteristics = [notifyChar]
+        svc.characteristics = [notifyChar, writeChar]
         // Advertise only once the service is actually published (see didAdd). Advertising
         // immediately after add() is a race and can leave us advertising without the service.
         // Claim the slot before add() rather than in didAdd: the callback is async, so anything that
@@ -146,6 +157,26 @@ extension BLEClient: CBPeripheralManagerDelegate {
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers p: CBPeripheralManager) { flush() }
+
+    /// Reassemble the 4-byte big-endian length + JSON stream the glasses write to us.
+    func peripheralManager(_ p: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
+        for r in requests {
+            guard let v = r.value else { continue }
+            inbound.append(v)
+            while inbound.count >= 4 {
+                let len = Int(UInt32(bigEndian: inbound.prefix(4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }))
+                guard len > 0, len < 4_000_000 else { inbound.removeAll(); break }
+                guard inbound.count >= 4 + len else { break }
+                let body = inbound.subdata(in: 4..<(4 + len))
+                inbound.removeSubrange(0..<(4 + len))
+                if let o = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                   let type = o["type"] as? String {
+                    onMessage?(type, o["data"] as? [String: Any] ?? [:])
+                }
+            }
+        }
+        if let first = requests.first { p.respond(to: first, withResult: .success) }
+    }
 
     func peripheralManager(_ p: CBPeripheralManager, didAdd service: CBService, error: Error?) {
         if let error {

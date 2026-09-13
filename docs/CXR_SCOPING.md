@@ -81,3 +81,20 @@ still unmeasured.
 The chosen architecture (glasses capture, phone brain) is viable via `AudioRecord` on the glasses,
 with PCM shipped over our existing BLE link. The iOS `RGCxrClient` route is a proven fallback that
 would move capture to the phone but makes us dependent on the Rokid app being connected.
+
+## Transport budget: why assistant audio must be compressed
+
+Measured against our negotiated MTU of 185 (about 182 usable bytes per packet):
+
+| Payload | Rate | Verdict over this link |
+|---|---|---|
+| Raw PCM 16kHz mono 16-bit | 32000 B/s | too fast |
+| BLE @30ms x4 packets | 24266 B/s | below raw PCM |
+| BLE @30ms x6 packets | 36400 B/s | no headroom |
+| BLE @15ms x4 packets | 48533 B/s | clears it, but iOS rarely grants 15ms |
+| Opus 16-24kbps | 2000-3000 B/s | fits easily |
+| AAC 32kbps | 4000 B/s | fits easily |
+
+So raw PCM is not viable glasses->phone over BLE, and the transport is built encoding-agnostic:
+4-byte big-endian length + UTF-8 JSON, chunked to 180 bytes, over characteristic `6E400002`
+(`CHAR_WRITE`). The encoder choice is still open.

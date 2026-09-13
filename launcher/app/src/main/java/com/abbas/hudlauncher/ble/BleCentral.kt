@@ -54,6 +54,8 @@ class BleCentral(private val context: Context) {
     private var autoConnectTried = false
     /** True only once the link is actually up; an armed autoConnect is pending, not connected. */
     private var connected = false
+    /** Phone-ward characteristic, resolved at discovery; null until the link is up. */
+    private var writeCh: BluetoothGattCharacteristic? = null
     /** How many copies of the service the peripheral exposed on this connection. */
     private var instanceCount = 0
     private var bondReceiver: android.content.BroadcastReceiver? = null
@@ -212,6 +214,7 @@ class BleCentral(private val context: Context) {
                 Log.d(TAG, "companion disconnected")
                 inbound = null
                 connected = false
+                writeCh = null
                 instanceCount = 0
                 discoveryStarted = false
                 subscribed = false
@@ -415,6 +418,39 @@ class BleCentral(private val context: Context) {
         }
     }
 
+    /**
+     * Send one message to the phone: 4-byte big-endian length + UTF-8 JSON, chunked to the MTU.
+     *
+     * Deliberately encoding-agnostic. Raw 16kHz PCM is 32KB/s, which this link cannot reliably
+     * carry, so assistant audio is expected to arrive here already compressed.
+     */
+    @SuppressLint("MissingPermission")
+    fun send(type: String, data: org.json.JSONObject): Boolean {
+        val g = gatt ?: return false
+        val ch = writeCh ?: run { Log.w(TAG, "no write characteristic"); return false }
+        return try {
+            val json = org.json.JSONObject().put("type", type).put("data", data).toString()
+                .toByteArray(Charsets.UTF_8)
+            val framed = ByteBuffer.allocate(4 + json.size).order(ByteOrder.BIG_ENDIAN)
+                .putInt(json.size).put(json).array()
+            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            var off = 0
+            while (off < framed.size) {
+                val end = minOf(off + CHUNK, framed.size)
+                val part = framed.copyOfRange(off, end)
+                val ok = if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    g.writeCharacteristic(ch, part, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ==
+                        BluetoothGatt.GATT_SUCCESS
+                } else {
+                    @Suppress("DEPRECATION") run { ch.value = part; g.writeCharacteristic(ch) }
+                }
+                if (!ok) { Log.w(TAG, "write failed at offset $off"); return false }
+                off = end
+            }
+            true
+        } catch (e: Throwable) { Log.w(TAG, "send failed: ${e.message}"); false }
+    }
+
     /** Reassemble the 4-byte big-endian length + JSON stream. */
     private fun accept(chunk: ByteArray) {
         if (!subscribed) {
@@ -448,6 +484,8 @@ class BleCentral(private val context: Context) {
     companion object {
         private const val TAG = "BleCentral"
         private const val MAX_MESSAGE = 256 * 1024
+        /** Fits inside the negotiated 185-byte MTU with ATT overhead. */
+        private const val CHUNK = 180
         private const val RESCAN_MS = 25_000L
         private const val RESCAN_MAX_MS = 5 * 60_000L
         private const val RESCAN_BACKOFF_STEPS = 4
