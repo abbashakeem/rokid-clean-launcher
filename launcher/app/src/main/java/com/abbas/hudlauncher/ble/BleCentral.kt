@@ -43,9 +43,11 @@ class BleCentral(private val context: Context) {
         try {
             val scanner = manager.adapter?.bluetoothLeScanner ?: run { Log.w(TAG, "no scanner"); return }
             if (scanning) return
-            val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(BleServer.SERVICE)).build()
+            // No hardware filter: offloaded 128-bit UUID filtering is unreliable on this chipset,
+            // and iOS may put the service UUID in the scan response rather than the advert. Match in
+            // software instead (see onScanResult).
             val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-            scanner.startScan(listOf(filter), settings, callback)
+            scanner.startScan(null, settings, callback)
             scanning = true
             Log.d(TAG, "scanning for companion app")
         } catch (e: Throwable) {
@@ -65,9 +67,18 @@ class BleCentral(private val context: Context) {
         gatt = null
     }
 
+    private val seen = HashSet<String>()
+
     private val callback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val rec = result.scanRecord
+            val uuids = (rec?.serviceUuids ?: emptyList()).map { it.uuid }
+            val name = rec?.deviceName ?: result.device.name ?: ""
+            if (seen.add(result.device.address)) {
+                Log.d(TAG, "saw ${result.device.address} name='$name' uuids=$uuids")
+            }
+            if (!uuids.contains(BleServer.SERVICE)) return
             Log.d(TAG, "found companion ${result.device.address} rssi=${result.rssi}")
             stopScan()
             connect(result.device)
