@@ -479,7 +479,8 @@ class MainActivity : AppCompatActivity() {
         btnMessages.visibility = View.VISIBLE
         val shortcut = appPicker.entryFor(cfg.shortcutApp)
         btnMessages.setImageResource(
-            if (navActive) R.drawable.nav_straight else shortcut?.iconRes ?: R.drawable.ic_apps)
+            if (navActive) R.drawable.nav_straight
+            else shortcut?.iconRes ?: R.drawable.ic_shortcut_none)
         btnMessages.contentDescription =
             if (navActive) getString(R.string.btn_navigation) else shortcut?.label ?: getString(R.string.btn_apps)
     }
