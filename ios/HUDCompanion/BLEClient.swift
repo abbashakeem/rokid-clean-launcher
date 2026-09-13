@@ -25,6 +25,11 @@ final class BLEClient: NSObject, ObservableObject {
     private var manager: CBPeripheralManager!
     private var notifyChar: CBMutableCharacteristic!
     private var queue: [Data] = []
+    private var subscribedCentral: CBCentral?
+
+    /// Bytes that actually fit in one notification for the connected central. Hardcoding this
+    /// silently truncates when the negotiated MTU is smaller than assumed.
+    private var maxUpdateLength: Int { subscribedCentral?.maximumUpdateValueLength ?? 20 }
 
     override init() {
         super.init()
@@ -35,8 +40,10 @@ final class BLEClient: NSObject, ObservableObject {
     func startAdvertising() {
         guard manager.state == .poweredOn else { return }
         manager.removeAllServices()
+        // Reference implementation uses empty permissions for a notify-only characteristic;
+        // [.readable] here can stop iOS reporting the central's subscribe.
         notifyChar = CBMutableCharacteristic(
-            type: hudNotify, properties: [.notify], value: nil, permissions: [.readable])
+            type: hudNotify, properties: [.notify], value: nil, permissions: [])
         let svc = CBMutableService(type: hudService, primary: true)
         svc.characteristics = [notifyChar]
         // Advertise only once the service is actually published (see didAdd). Advertising
@@ -47,7 +54,8 @@ final class BLEClient: NSObject, ObservableObject {
 
     /// Send one JSON message: 4-byte big-endian length + UTF-8, chunked to the negotiated MTU.
     func send(type: String, data: [String: Any]) {
-        guard state == .connected, notifyChar != nil else { state = .error("glasses not connected"); return }
+        guard let ch = notifyChar else { state = .error("service not published"); return }
+        _ = ch
         let payload: [String: Any] = ["type": type, "data": data]
         guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return }
         var framed = Data()
@@ -55,8 +63,7 @@ final class BLEClient: NSObject, ObservableObject {
         withUnsafeBytes(of: &len) { framed.append(contentsOf: $0) }
         framed.append(json)
 
-        // 20 is the safe floor before MTU negotiation; the glasses request 512.
-        let mtu = 180
+        let mtu = maxUpdateLength
         var offset = 0
         queue.removeAll()
         while offset < framed.count {
@@ -87,6 +94,7 @@ extension BLEClient: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ p: CBPeripheralManager, central: CBCentral,
                            didSubscribeTo characteristic: CBCharacteristic) {
+        subscribedCentral = central
         deviceName = "Glasses"
         state = .connected
         onReady?()
@@ -94,6 +102,8 @@ extension BLEClient: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ p: CBPeripheralManager, central: CBCentral,
                            didUnsubscribeFrom characteristic: CBCharacteristic) {
+        subscribedCentral = nil
+        queue.removeAll()
         state = .advertising
     }
 

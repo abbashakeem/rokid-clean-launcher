@@ -44,7 +44,7 @@ struct ContentView: View {
                     Button { push(manual: true) } label: {
                         Label("Push now", systemImage: "arrow.up.circle.fill")
                     }
-                    .disabled(ble.state != .connected || !cal.authorized)
+                    .disabled(!cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
                     Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
                         .font(.caption2).foregroundColor(.secondary)
@@ -61,7 +61,7 @@ struct ContentView: View {
 
     private func autoPush() {
         let now = Date().timeIntervalSince1970
-        guard ble.state == .connected, cal.authorized, now - lastAutoPush >= autoInterval else { return }
+        guard ble.state == .connected || ble.state == .advertising, cal.authorized, now - lastAutoPush >= autoInterval else { return }
         push(manual: false)
     }
 
