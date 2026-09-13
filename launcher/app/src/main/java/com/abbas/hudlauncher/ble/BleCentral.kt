@@ -54,6 +54,8 @@ class BleCentral(private val context: Context) {
     private var autoConnectTried = false
     /** True only once the link is actually up; an armed autoConnect is pending, not connected. */
     private var connected = false
+    /** How many copies of the service the peripheral exposed on this connection. */
+    private var instanceCount = 0
     /**
      * One-shot guards. iOS peripherals emit a Service Changed indication shortly after connecting,
      * so `onServicesDiscovered` fires twice; the second CCCD write collides with the first still in
@@ -195,6 +197,7 @@ class BleCentral(private val context: Context) {
                 Log.d(TAG, "companion disconnected")
                 inbound = null
                 connected = false
+                instanceCount = 0
                 discoveryStarted = false
                 subscribed = false
                 subscribeAttempts = 0
@@ -234,8 +237,16 @@ class BleCentral(private val context: Context) {
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                // Do NOT stop here: a successful write may have landed on an orphaned instance.
-                // Keep cycling through the remaining instances until data actually arrives.
+                if (instanceCount <= 1) {
+                    // Only one instance exists, so a successful write is unambiguous. Stop here:
+                    // rewriting the CCCD repeatedly is pointless and can destabilise the link.
+                    subscribed = true
+                    handler.removeCallbacks(subscribeRetry)
+                    Log.d(TAG, "SUBSCRIBED (single instance)")
+                    return
+                }
+                // With duplicates a success may have landed on an orphan, so keep cycling through
+                // the remaining instances until data actually arrives.
                 Log.d(TAG, "CCCD written on instance #${subscribeAttempts - 1}")
             } else {
                 Log.w(TAG, "CCCD write FAILED status=$status")
@@ -271,7 +282,8 @@ class BleCentral(private val context: Context) {
         val notify = candidates[subscribeAttempts % candidates.size]
         val cccd = notify.getDescriptor(BleServer.CCCD)
             ?: run { Log.w(TAG, "no CCCD on notify characteristic; cannot subscribe"); return }
-        Log.d(TAG, "service instances=${candidates.size}, using #${subscribeAttempts % candidates.size}")
+        instanceCount = candidates.size
+        Log.d(TAG, "service instances=$instanceCount, using #${subscribeAttempts % candidates.size}")
         subscribeAttempts++
         val notifSet = g.setCharacteristicNotification(notify, true)
         val ok = if (android.os.Build.VERSION.SDK_INT >= 33) {
