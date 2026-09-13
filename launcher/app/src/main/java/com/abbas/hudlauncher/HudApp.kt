@@ -34,7 +34,9 @@ class HudApp : Application() {
                 else -> Log.d(TAG, "BLE message: $type")
             }
         }
-        try { ble.start() } catch (e: Exception) { Log.w(TAG, "BLE start failed: ${e.message}") }
+        // Advertising is broken on this firmware and the wedged registration may poison the BLE stack
+        // for our process, so the GATT server stays off; we only scan. Re-enable if firmware changes.
+        // try { ble.start() } catch (e: Exception) { Log.w(TAG, "BLE start failed: ${e.message}") }
 
         // This firmware can't advertise, so we also scan as a central for the iPhone app acting as
         // the peripheral. Diagnostic logging on for now to confirm the central role works.
