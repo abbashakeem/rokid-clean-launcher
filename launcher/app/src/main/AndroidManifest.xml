@@ -25,6 +25,8 @@
     <!-- return watcher: adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow ; ... SYSTEM_ALERT_WINDOW allow -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- assistant capture: adb shell pm grant com.abbas.hudlauncher android.permission.RECORD_AUDIO -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />

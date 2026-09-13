@@ -1,66 +1,83 @@
-# CXR path: scoping
+# Rokid SDK scoping — findings from direct inspection
 
-Alternative to raw BLE, which we falsified on this hardware (the reference implementation's own
-receiver also fails to discover the iPhone — see IPHONE_APP.md). CXR is Rokid's sanctioned SDK suite,
-so the link rides their transport (BLE GATT + classic socket + Wi-Fi Direct with fallback) instead of
-us opening our own radio.
+Supersedes the earlier version of this document, which was wrong on two counts: it claimed BLE had
+been "falsified on this hardware" (our BLE link to the iPhone works and carries the calendar), and
+it misstated which side each SDK runs on.
 
-## Does the companion app survive? Yes.
+Everything below was established by pulling the actual artifacts and testing on the device
+(serial 1901092544006964, YodaOS-Sprite, Android 12), not from documentation.
 
-Only the transport changes. Everything that made the app worth building stays:
+## Which SDK runs where
 
-- the EventKit calendar picker (the founding problem: choose which iPhone calendars sync)
-- the throttled auto-push (on connect, on calendar change, max every 2 hours)
-- the SwiftUI UI and the manual "Push now"
+| SDK | Runs on | Distribution | Notes |
+|---|---|---|---|
+| **CXR-M** | phone | Maven `com.rokid.cxr:client-m` | Android only, minSdk 28 |
+| **CXR-L** | phone | Maven `client-l` (Android) **and** CocoaPods `RGCxrClient` (iOS) | binds the Rokid AI app |
+| **CXR-S** | glasses | not published under that name | see `cxr-service-bridge` below |
+| **cxr-service-bridge** | glasses | Maven `com.rokid.cxr:cxr-service-bridge` | the glasses-side API, ships arm64 native libs |
 
-`BLEClient.swift` is replaced by a CXR transport. `CalendarSync.swift` and `ContentView.swift` are
-essentially untouched.
+CXR-L's AAR manifest declares `<queries>` for `com.rokid.sprite.aiapp`, which is how an app declares
+it will bind another app **on the same device**. That package is not installed on the glasses, so
+CXR-L is phone-side. The glasses run `com.rokid.cxrservice` instead (`/system/app/CXRService`), whose
+native half is `/system/lib64/libcxr_service_jni.so`.
 
-## The three SDKs
+## iOS: RGCxrClient
 
-| SDK | Runs on | Role for us |
+Real, official (published by a rokid.com account), public on the CocoaPods trunk, latest 1.1.1,
+iOS 13+, Swift 5, one dependency (`RGCoreKit`). Binary framework from Rokid's OSS.
+
+- Links **CoreBluetooth only** — no `ExternalAccessory`, so **no Apple MFi enrolment needed**.
+- `RGCxrClientInitializationOptions` carries only `appDisplayName` and `pageName`: **no app key or
+  client secret**, so no Rokid developer account is required.
+- `RGCxrClientAuthPermission` includes `microphone`, `camera`, `media`, `deviceManage`.
+- `RGCxrSessionMedia`: `startAudioStream(codec:mode:)`, `feedAudio(_:)`, `startPlayAudio(codec:)`,
+  `takePhoto(width:height:quality:callback:)`.
+- `RGCxrSessionMediaEvents.audioPublisher` is a Combine publisher emitting
+  `.started(codec, type, channels)` then `.stream(data, timestamp)`. Sample rate is not carried.
+
+## Glasses-side audio: two paths, only one usable
+
+### CXRServiceBridge (Rokid's own) — NOT usable for continuous capture
+
+`openAudioRecord(codec, mode, AudioRecordParam, AudioRecordCallback)` works and is permitted for a
+third-party app (the service labels us `glassesApp.N`, the flora socket connects, no SELinux denial).
+Validated empirically against the service's own error logs:
+
+- **codec**: 1-3 valid; 0 and 4+ rejected with `AudioCapture: invalid codec N`.
+- **mode**: 1-6 valid; 0 rejected with `AudioCapture: invalid mode N`.
+- `AudioRecordParam(denoiseMode, rokidDtlnAEC, rokidBF)` — beamforming and echo cancellation.
+- Modes differ in DSP routing: 3 and 6 go through `RokidAudio2`, 5 through `RokidAudio1`.
+
+**It delivers exactly one 640-byte frame (320 samples = 20ms) and then closes**, every time, on every
+codec/mode/denoise combination, worn or not. Chained re-opening recovers ~706 Hz of the 16000 Hz
+needed (about 4%), so it is not a workaround. The close arrives as a real `closeAudioRecord3` command
+for that record name; the only native call site is the `nativeCloseAudioRecord` JNI entry, and the
+bridge's documented auto-close path (`onAudioRecordId` with an unseeded pending map) was ruled out by
+pre-seeding the map across a wide id range. Cause remains unknown; it behaves like a deliberate cap.
+
+### Plain Android AudioRecord — USE THIS
+
+The glasses are Android and `AudioRecord` simply works, bypassing the bridge entirely:
+
+| Source | Achieved | Notes |
 |---|---|---|
-| **CXR-M** | phone (Android documented; iOS existence unclear in community docs) | mobile companion |
-| **CXR-S** | glasses | our launcher receives messages |
-| **CXR-L** | phone, **Android/iOS** | extends the Rokid AI app; iOS client exists |
+| `MIC` | 15853 Hz | use this |
+| `VOICE_COMMUNICATION` | 15861 Hz | also fine |
+| `DEFAULT` | 15861 Hz | also fine |
+| `VOICE_RECOGNITION` | 12592 Hz | underruns, returns all zeros — avoid |
 
-## Confirmed iOS availability
+16 kHz mono PCM16, `minBufferSize` 1280. Needs `RECORD_AUDIO`, granted over USB. Verified by
+recording 5.00s to app-private storage while playing a 1 kHz tone through the glasses' speaker:
+1 kHz energy 4.0 versus 0.4 at 3 kHz and 0.0 at 500 Hz, peak rising 8 -> 148 with the tone on.
 
-`Anezium/Rokid-Lyrics-iOS` integrates the **CXR-L client via CocoaPods: `RGCxrClient`**. It exposes
-`openCustomView` / `updateCustomView` / `sendCustomCmd`, with no app ID, client secret or licence
-mentioned. That is concrete proof an iOS CXR client exists and is usable.
+**Caveat:** with the glasses unworn, 83% of samples are exactly zero and peak is 148/32767. That is
+the signature of aggressive noise gating, not of a dead mic. Real speech amplitude while worn is
+still unmeasured.
 
-Note the community docs only document CXR-M for Android; the iOS story runs through CXR-L.
+`tinycap` does not work (`/dev/snd/pcmC0D0c` absent); that rules out raw ALSA, not AudioRecord.
 
-## Glasses side
+## Consequences for the assistant
 
-CXR-S gives an on-device app a message bridge:
-
-- `CXRServiceBridge.sendMessage(name, Caps)` — glasses → phone
-- a matching subscription API — phone → glasses (`message-subscription.md`)
-
-Payloads are `Caps`, which we already decoded and implemented (`tools/rokid-link/caps.py`), so the
-framing is not new work.
-
-## Open questions to resolve before committing
-
-1. **Does `sendCustomCmd` from CXR-L reach a third-party glasses app**, or only Rokid's own scenes?
-   This is the crux: we need the launcher to receive the calendar payload.
-2. Does CXR-L require the **Hi Rokid app** to be installed and connected? CXR-L is described as
-   "extending the Rokid AI APP", which implies yes. Acceptable for us (it is already connected), but
-   it means we do not escape the Rokid app the way raw BLE would have.
-3. Whether `RGCxrClient` is on a public CocoaPods spec repo or needs Rokid's private source.
-4. Payload size limits for `sendCustomCmd` (a week of events is a few KB, likely fine).
-
-## Effort estimate
-
-- iOS: swap transport, ~half a day, assuming the pod installs cleanly.
-- Glasses: add CXR-S dependency and a message subscription in the launcher, ~half a day.
-- Risk concentrated in open question 1; if custom commands cannot reach our app, this path dies and
-  the Wi-Fi backend fallback is the answer.
-
-## Recommended next step
-
-Spike the smallest possible test: add `RGCxrClient` to the iOS app, send one `sendCustomCmd`, and add
-a CXR-S subscription in the launcher to see whether anything arrives. That answers question 1 cheaply
-before any real work.
+The chosen architecture (glasses capture, phone brain) is viable via `AudioRecord` on the glasses,
+with PCM shipped over our existing BLE link. The iOS `RGCxrClient` route is a proven fallback that
+would move capture to the phone but makes us dependent on the Rokid app being connected.
