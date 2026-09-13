@@ -99,3 +99,28 @@ second binary characteristic. No auth needed on a paired link for v1; add a shar
 - Continuous map streaming over *hotspot* — the user ruled out a continuous Wi-Fi dependency.
 - The classic-SPP path Rokid also exposes — needs MFi from iOS, so we use BLE instead.
 - Reimplementing Caps for the iPhone — unnecessary once we run our own BLE service.
+
+
+## Research update: BLE is proven possible on this hardware
+
+`mayacenote/RokidKeyboard` is an iPhone keyboard/touchpad companion for these exact glasses
+(YodaOS-Sprite) with a glasses-side BLE receiver. It confirms our architecture is right and it
+coexists with the Hi Rokid connection. What it does differently:
+
+- **iPhone is the peripheral, glasses are the central** — same role flip we landed on.
+- Uses the **Nordic UART Service** UUIDs (`6E400001-B5A3-F393-E0A9-77656B657962`, notify on
+  `6E400003-...`) rather than a private UUID.
+- The glasses-side scanner runs in a **foreground service**, not from Application context.
+- Framing is one packet per notification: `[type: u8][payload]`.
+
+Likely bugs/gaps on our side, in order of suspicion:
+
+1. Our iOS code calls `startAdvertising` immediately after `add(service)` instead of waiting for
+   `peripheralManager(_:didAdd:error:)`. That is a race; advertise only after the service is added.
+2. Our scanner runs from `Application.onCreate` rather than a foreground service, so Android may
+   throttle or drop it.
+3. Worth trying the Nordic UART UUIDs, which are known to work on this firmware.
+
+Also confirmed: Rokid ships **CXR-M for iOS**, so a fully sanctioned path exists (glasses use
+`CXRServiceBridge.sendMessage(name, Caps)` from CXR-S, phone uses CXR-M) that rides Rokid's own
+transport and sidesteps raw BLE entirely. `Anezium/Rokid-Lyrics-iOS` is a SwiftUI app using CXR-L.
