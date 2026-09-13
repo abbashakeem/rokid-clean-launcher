@@ -1,108 +1,62 @@
 package com.abbas.hudlauncher
 
 import android.app.Activity
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
 
 /**
- * Display-off behaviour matching Rokid's launcher: off after [idleMs] idle, or on demand.
+ * Keeps the HUD reliably visible and wakeable.
  *
- * Rokid Glasses ship with device-admin disabled and no system-level power permission for
- * third-party apps, so we use what a normal app can:
- *  1. WindowManager.LayoutParams.userActivityTimeout (hidden field, set by reflection). While our
- *     window is focused, the power manager uses it instead of the system screen timeout.
- *  2. Fallback: write the system screen-off timeout (WRITE_SETTINGS is already granted for brightness).
- *  3. On demand: drop the window brightness to zero and hide the content, which reads as "off" on
- *     the waveguide, then let (1) put the panel to sleep for real a moment later.
+ * An earlier version force-slept the panel (userActivityTimeout reflection, screenBrightness=0,
+ * short system timeouts) to mimic Rokid's display-off. On the real glasses that produced a sleep
+ * state the touchpad could not wake, bricking input. So this now does the one safe thing: hold the
+ * screen on with FLAG_KEEP_SCREEN_ON while the HUD is in front. Auto display-off and on-demand sleep
+ * are deliberately no-ops until they can be done with a primitive that wakes reliably on touch.
+ *
+ * The API is unchanged so callers (nav wake/hold, double-tap) keep compiling; the risky methods
+ * simply keep the screen on instead of manipulating power.
  */
 class DisplaySleeper(private val activity: Activity, var idleMs: Long, private val content: View) {
-    private val handler = Handler(Looper.getMainLooper())
-    private val blankRunnable = Runnable { blank() }
-    private var blanked = false
-    private var reflectionWorks = true
-
-    /** Turn the panel on (e.g. for a navigation turn) and restart the idle timer. Needs WAKE_LOCK. */
-    @Suppress("DEPRECATION")
-    fun wake() {
-        Log.d(TAG, "wake requested")
-        try {
-            val pm = activity.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-            val wl = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "hud:nav")
-            wl.acquire(1500)
-        } catch (e: Exception) { Log.w(TAG, "wake failed: ${e.message}") }
-        touch()
-    }
-
-    /** Keep the panel on until [release]. */
-    fun holdOn() { handler.removeCallbacks(blankRunnable); unblank(); applyWindowTimeout(60 * 60 * 1000L) }
-    fun release() { applyWindowTimeout(idleMs); touch() }
 
     fun onResume() {
-        unblank()
-        applyWindowTimeout(idleMs)
-        touch()
+        keepOn(true)
+        show()
     }
 
     fun onPause() {
-        handler.removeCallbacks(blankRunnable)
+        // nothing to tear down; the window flag clears with the window
     }
 
-    /** Any interaction restarts the idle timer and restores the content if it was blanked. */
-    fun touch() {
-        unblank()
-        handler.removeCallbacks(blankRunnable)
-        handler.postDelayed(blankRunnable, idleMs)
-    }
+    /** Any interaction: ensure the content is visible. No timer, so nothing can blank us. */
+    fun touch() = show()
 
-    /** Double tap: look off immediately, then the short window timeout switches the panel off. */
+    /** Nav asked to bring the panel up; it is already on. */
+    fun wake() = show()
+
+    fun holdOn() = keepOn(true)
+    fun release() = keepOn(true)
+
+    /** Display-off is disabled for safety; keep the HUD visible instead of an unwakeable sleep. */
     fun sleepNow() {
-        handler.removeCallbacks(blankRunnable)
-        blank()
-        applyWindowTimeout(SLEEP_SOON_MS)
+        Log.d(TAG, "sleepNow ignored: auto display-off is disabled to keep input wakeable")
+        show()
     }
 
-    private fun blank() {
-        if (blanked) return
-        blanked = true
-        content.visibility = View.INVISIBLE
-        activity.window.attributes = activity.window.attributes.apply { screenBrightness = 0f }
+    private fun show() {
+        if (content.visibility != View.VISIBLE) content.visibility = View.VISIBLE
+        val a = activity.window.attributes
+        if (a.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            activity.window.attributes = a.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+        }
     }
 
-    private fun unblank() {
-        if (!blanked) return
-        blanked = false
-        content.visibility = View.VISIBLE
-        activity.window.attributes = activity.window.attributes.apply {
-            screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        }
-        applyWindowTimeout(idleMs)
-    }
-
-    private fun applyWindowTimeout(ms: Long) {
-        if (reflectionWorks) {
-            try {
-                val lp = activity.window.attributes
-                WindowManager.LayoutParams::class.java.getField("userActivityTimeout").setLong(lp, ms)
-                activity.window.attributes = lp
-                return
-            } catch (e: Throwable) {
-                reflectionWorks = false
-                Log.w(TAG, "userActivityTimeout not accessible (${e.javaClass.simpleName}); using system setting")
-            }
-        }
-        try {
-            Settings.System.putInt(activity.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT, ms.toInt())
-        } catch (e: Exception) {
-            Log.w(TAG, "cannot write screen timeout: ${e.message}")
-        }
+    private fun keepOn(on: Boolean) {
+        if (on) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     companion object {
         private const val TAG = "Sleeper"
-        private const val SLEEP_SOON_MS = 500L
     }
 }
