@@ -12,6 +12,7 @@ import android.util.Log
 class HudApp : Application() {
     lateinit var scenes: RokidScenes; private set
     lateinit var configRepo: ConfigRepository; private set
+    lateinit var ble: com.abbas.hudlauncher.ble.BleServer; private set
 
     override fun onCreate() {
         super.onCreate()
@@ -20,6 +21,20 @@ class HudApp : Application() {
         scenes = RokidScenes(this)
         scenes.onNavAny = { takeOverIfNeeded() }
         scenes.bind()
+
+        // our own BLE service for the iPhone companion app; independent of Rokid's Bluetooth.
+        // Wrapped so a Bluetooth failure can never crash the launcher (it is our HOME app).
+        ble = com.abbas.hudlauncher.ble.BleServer(this)
+        ble.onMessage = { type, data ->
+            when (type) {
+                "calendar" -> data.optJSONArray("events")?.let {
+                    com.abbas.hudlauncher.ble.BlePhoneData.storeCalendar(this, it)
+                    Log.d(TAG, "BLE calendar: ${it.length()} events")
+                }
+                else -> Log.d(TAG, "BLE message: $type")
+            }
+        }
+        try { ble.start() } catch (e: Exception) { Log.w(TAG, "BLE start failed: ${e.message}") }
     }
 
     private var lastTakeOver = 0L

@@ -24,7 +24,7 @@ data class AgendaEvent(val title: String, val start: Date, val allDay: Boolean) 
 
 data class Agenda(val events: List<AgendaEvent>, val fromCache: Boolean)
 
-class CalendarRepository(context: Context) {
+class CalendarRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("hud", Context.MODE_PRIVATE)
 
     /** source: api | rokid | both. Rokid entries come from the phone via the assist server. */
@@ -33,16 +33,36 @@ class CalendarRepository(context: Context) {
         val rokidEvents = if (source == "api") emptyList() else rokid
             .filter { it.scheduleTime > now.time - 60 * 60 * 1000 }
             .map { AgendaEvent(it.title, Date(it.scheduleTime), allDay = false) }
-        if (source == "rokid") return@withContext Agenda(order(rokidEvents, maxEvents), fromCache = false)
+        // events pushed from the iPhone app over BLE merge into every source (they only exist if pushed)
+        val ble = bleEvents()
+        if (source == "rokid") return@withContext Agenda(order(rokidEvents + ble, maxEvents), fromCache = false)
         try {
             val body = HudApi.get("/get-calendar?limit=${maxEvents * 2}")
             prefs.edit().putString(KEY_CACHE, body).apply()
-            Agenda(order(parse(body) + rokidEvents, maxEvents), fromCache = false)
+            Agenda(order(parse(body) + rokidEvents + ble, maxEvents), fromCache = false)
         } catch (e: Exception) {
             Log.w(TAG, "calendar unavailable, using cache: ${e.message}")
             val cached = prefs.getString(KEY_CACHE, null)
-            Agenda(order((if (cached != null) parse(cached) else emptyList()) + rokidEvents, maxEvents), fromCache = true)
+            Agenda(order((if (cached != null) parse(cached) else emptyList()) + rokidEvents + ble, maxEvents), fromCache = true)
         }
+    }
+
+    /** Events pushed from the iPhone app: {title, start, end, allDay} with epoch-ms or ISO times. */
+    private fun bleEvents(): List<AgendaEvent> {
+        val arr = com.abbas.hudlauncher.ble.BlePhoneData.events(context)
+        val now = Date()
+        return (0 until arr.length()).map { arr.getJSONObject(it) }.mapNotNull { o ->
+            val start = parseTime(o.opt("start")) ?: return@mapNotNull null
+            val end = parseTime(o.opt("end")) ?: start
+            if (end.before(now)) return@mapNotNull null
+            AgendaEvent(o.optString("title", "(untitled)"), start, o.optBoolean("allDay", false))
+        }
+    }
+
+    private fun parseTime(v: Any?): Date? = when (v) {
+        is Number -> Date(v.toLong())
+        is String -> parseIso(v)
+        else -> null
     }
 
     private fun order(events: List<AgendaEvent>, max: Int): List<AgendaEvent> =

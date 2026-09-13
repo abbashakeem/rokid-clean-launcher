@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- phone link glyph fallback: adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- our own BLE server for the iPhone app: adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_ADVERTISE -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- this Rokid build enforces the legacy permission for the advertiser -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <!-- brightness picker; granted once via: adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!-- return watcher: adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow ; ... SYSTEM_ALERT_WINDOW allow -->
