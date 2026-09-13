@@ -35,11 +35,14 @@ final class BLEClient: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        // Deliberately NOT opting into state restoration. With a restore identifier CoreBluetooth
-        // can call delegate methods during this initialiser, before the result is assigned to
-        // `manager`, so any callback that reaches back through `manager` hits nil and crashes on
-        // launch. The bluetooth-peripheral background mode already keeps an established link alive,
-        // which is the part that mattered; relaunch-after-termination is not worth that risk.
+        // Deliberately NOT opting into state restoration: it hard-crashes at launch unless the
+        // "bluetooth-peripheral" background mode is present in the BUILT Info.plist, and setting
+        // INFOPLIST_KEY_UIBackgroundModes in the project did not put it there. The assertion fires
+        // inside this initialiser, so the app dies every launch.
+        //
+        // Restoration only bought relaunch-after-termination, which is not worth that risk. Note
+        // the background mode is therefore NOT in effect: a backgrounded link surviving is iOS
+        // being generous, not something this app has declared a right to.
         manager = CBPeripheralManager(delegate: self, queue: nil)
     }
 
