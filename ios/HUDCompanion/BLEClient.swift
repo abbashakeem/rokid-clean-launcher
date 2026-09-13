@@ -5,36 +5,65 @@ import Combine
 /// Connects to the Rokid glasses and talks to OUR launcher's GATT service.
 ///
 /// The glasses' controller allows only one advertiser and Rokid already uses it, so our launcher
-/// cannot advertise its own UUID. Instead we find the glasses by Rokid's advertised service, connect,
-/// and discover our service among theirs on the same peripheral.
+/// cannot advertise its own UUID. And because the glasses are already connected to iOS via the Rokid
+/// app, a normal scan will NOT surface them. So we primarily use retrieveConnectedPeripherals to grab
+/// the already-connected glasses, then discover our service among theirs; a broad scan is a fallback.
 final class BLEClient: NSObject, ObservableObject {
     enum State: Equatable { case off, scanning, connecting, ready, error(String) }
 
     @Published var state: State = .off
     @Published var deviceName: String = ""
 
+    /// Fired when the write channel is ready (used for auto-push).
+    var onReady: (() -> Void)?
+
     // Our launcher's service (must match BleServer.kt)
     private let hudService = CBUUID(string: "6E5D0001-B00B-4B1D-8B00-0000000000A1")
     private let hudWrite   = CBUUID(string: "6E5D0002-B00B-4B1D-8B00-0000000000A1")
     private let hudNotify  = CBUUID(string: "6E5D0003-B00B-4B1D-8B00-0000000000A1")
-    // Rokid's advertised service, used only to discover the glasses peripheral.
+    // Services the glasses are known to expose, used only to find the already-connected peripheral.
     private let rokidService = CBUUID(string: "00009400-0000-1000-8000-00805F9B34FB")
 
     private var central: CBCentralManager!
     private var glasses: CBPeripheral?
     private var writeChar: CBCharacteristic?
+    private var retryTimer: Timer?
 
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: nil)
     }
 
+    /// Find the glasses: prefer the already-connected device, fall back to scanning, and keep retrying.
     func startScan() {
         guard central.state == .poweredOn else { return }
-        state = .scanning
-        // Scan broadly: some stacks don't surface Rokid's service in the advertisement, so match by
-        // name too (see didDiscover).
+        if state != .ready { state = .scanning }
+        if tryConnected() { return }
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        scheduleRetry()
+    }
+
+    private func tryConnected() -> Bool {
+        let candidates = central.retrieveConnectedPeripherals(withServices: [rokidService, hudService])
+        guard let p = candidates.first else { return false }
+        connect(p, name: p.name ?? "Glasses")
+        return true
+    }
+
+    private func scheduleRetry() {
+        retryTimer?.invalidate()
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self, self.state != .ready else { self?.retryTimer?.invalidate(); return }
+            _ = self.tryConnected()
+        }
+    }
+
+    private func connect(_ p: CBPeripheral, name: String) {
+        glasses = p
+        deviceName = name
+        state = .connecting
+        central.stopScan()
+        central.connect(p, options: nil)
     }
 
     /// Send one JSON message, framed as 4-byte big-endian length + UTF-8, chunked to the MTU.
@@ -73,11 +102,7 @@ extension BLEClient: CBCentralManagerDelegate {
         let looksLikeGlasses = services.contains(rokidService)
             || name.lowercased().contains("rokid") || name.lowercased().contains("glass")
         guard looksLikeGlasses else { return }
-        glasses = p
-        deviceName = name.isEmpty ? "Glasses" : name
-        state = .connecting
-        c.stopScan()
-        c.connect(p, options: nil)
+        connect(p, name: name.isEmpty ? "Glasses" : name)
     }
 
     func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
@@ -90,15 +115,20 @@ extension BLEClient: CBCentralManagerDelegate {
     }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        writeChar = nil; state = .scanning; startScan()
+        writeChar = nil
+        if state == .ready { state = .scanning }
+        startScan()
     }
 }
 
 extension BLEClient: CBPeripheralDelegate {
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
         guard let svc = p.services?.first(where: { $0.uuid == hudService }) else {
-            // our service is not on this peripheral; keep looking
-            state = .error("HUD service not found"); return
+            // this peripheral doesn't have our service; drop it and keep looking
+            state = .scanning
+            central.cancelPeripheralConnection(p)
+            startScan()
+            return
         }
         p.discoverCharacteristics([hudWrite, hudNotify], for: svc)
     }
@@ -108,6 +138,12 @@ extension BLEClient: CBPeripheralDelegate {
             if ch.uuid == hudWrite { writeChar = ch }
             if ch.uuid == hudNotify { p.setNotifyValue(true, for: ch) }
         }
-        state = writeChar != nil ? .ready : .error("write characteristic missing")
+        if writeChar != nil {
+            retryTimer?.invalidate()
+            state = .ready
+            onReady?()
+        } else {
+            state = .error("write characteristic missing")
+        }
     }
 }

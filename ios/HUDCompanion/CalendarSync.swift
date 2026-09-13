@@ -12,11 +12,20 @@ final class CalendarSync: ObservableObject {
     @Published var selected: Set<String> = []
     @Published var authorized = false
 
+    /// Fired when the system's calendar data changes (used for throttled auto-push).
+    var onChange: (() -> Void)?
+
     private let store = EKEventStore()
     private let selectionKey = "hud_selected_calendars"
 
     init() {
         selected = Set(UserDefaults.standard.stringArray(forKey: selectionKey) ?? [])
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(storeChanged), name: .EKEventStoreChanged, object: store)
+    }
+
+    @objc private func storeChanged() {
+        DispatchQueue.main.async { [weak self] in self?.onChange?() }
     }
 
     func requestAccess() {

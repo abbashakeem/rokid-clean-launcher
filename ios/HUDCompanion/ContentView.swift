@@ -1,9 +1,13 @@
 import SwiftUI
+import EventKit
 
 struct ContentView: View {
     @StateObject private var ble = BLEClient()
     @StateObject private var cal = CalendarSync()
     @State private var lastPush = ""
+    /// Epoch seconds of the last automatic push; manual pushes ignore the throttle.
+    @AppStorage("hud_last_auto_push") private var lastAutoPush: Double = 0
+    private let autoInterval: TimeInterval = 2 * 60 * 60   // 2 hours
 
     var body: some View {
         NavigationView {
@@ -14,6 +18,9 @@ struct ContentView: View {
                         Text(statusText)
                         Spacer()
                         if !ble.deviceName.isEmpty { Text(ble.deviceName).foregroundColor(.secondary).font(.caption) }
+                    }
+                    if case .error = ble.state {
+                        Button("Rescan") { ble.startScan() }
                     }
                 } header: { Text("Glasses") }
 
@@ -34,20 +41,36 @@ struct ContentView: View {
                 } header: { Text("Calendars to show on the HUD") }
 
                 Section {
-                    Button {
-                        let events = cal.events()
-                        ble.send(type: "calendar", data: ["events": events])
-                        lastPush = "Pushed \(events.count) events at \(Date().formatted(date: .omitted, time: .shortened))"
-                    } label: {
-                        Label("Push to glasses", systemImage: "arrow.up.circle.fill")
+                    Button { push(manual: true) } label: {
+                        Label("Push now", systemImage: "arrow.up.circle.fill")
                     }
                     .disabled(ble.state != .ready || !cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
+                    Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
+                        .font(.caption2).foregroundColor(.secondary)
                 }
             }
             .navigationTitle("HUD Companion")
-            .onAppear { if !cal.authorized { cal.requestAccess() } }
+            .onAppear {
+                if !cal.authorized { cal.requestAccess() }
+                ble.onReady = { autoPush() }
+                cal.onChange = { autoPush() }
+            }
         }
+    }
+
+    private func autoPush() {
+        let now = Date().timeIntervalSince1970
+        guard ble.state == .ready, cal.authorized, now - lastAutoPush >= autoInterval else { return }
+        push(manual: false)
+    }
+
+    private func push(manual: Bool) {
+        let events = cal.events()
+        ble.send(type: "calendar", data: ["events": events])
+        if !manual { lastAutoPush = Date().timeIntervalSince1970 }
+        let kind = manual ? "Pushed" : "Auto-pushed"
+        lastPush = "\(kind) \(events.count) events at \(Date().formatted(date: .omitted, time: .shortened))"
     }
 
     private var statusColor: Color {
