@@ -58,6 +58,8 @@ class BleCentral(private val context: Context) {
     private var instanceCount = 0
     private var bondReceiver: android.content.BroadcastReceiver? = null
     private var bondWaitStarted = 0L
+    /** Consecutive rescans that found nothing; backs the cadence off so a long outage stays cheap. */
+    private var missedScans = 0
     /**
      * One-shot guards. iOS peripherals emit a Service Changed indication shortly after connecting,
      * so `onServicesDiscovered` fires twice; the second CCCD write collides with the first still in
@@ -99,7 +101,12 @@ class BleCentral(private val context: Context) {
             Log.d(TAG, "scanning for companion app")
             tryDirectReconnect()
             handler.removeCallbacks(rescan)
-            handler.postDelayed(rescan, RESCAN_MS)
+            // A phone that is off, out of range or backgrounded can stay unreachable for hours.
+            // Scanning every 25s for all of it is the most expensive thing this app can do, so ease
+            // off as misses accumulate, up to a cap that still reconnects promptly once it returns.
+            val delay = (RESCAN_MS shl minOf(missedScans, RESCAN_BACKOFF_STEPS))
+                .coerceAtMost(RESCAN_MAX_MS)
+            handler.postDelayed(rescan, delay)
         } catch (e: Throwable) {
             Log.w(TAG, "scan failed: ${e.message}")
         }
@@ -108,7 +115,8 @@ class BleCentral(private val context: Context) {
     /** Bounce the scan so a throttled or silently-dead scanner recovers on its own. */
     private fun restartScan() {
         if (connected) return                          // link is up; nothing to look for
-        Log.d(TAG, "no companion yet; restarting scan")
+        missedScans++
+        Log.d(TAG, "no companion yet; restarting scan (miss #$missedScans)")
         try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
         scanning = false
         seen.clear()
@@ -191,6 +199,7 @@ class BleCentral(private val context: Context) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.d(TAG, "connected to companion")
                 connected = true
+                missedScans = 0
                 lastAddress = g.device.address
                 stopScan()
                 maybeBond(g)
@@ -440,6 +449,8 @@ class BleCentral(private val context: Context) {
         private const val TAG = "BleCentral"
         private const val MAX_MESSAGE = 256 * 1024
         private const val RESCAN_MS = 25_000L
+        private const val RESCAN_MAX_MS = 5 * 60_000L
+        private const val RESCAN_BACKOFF_STEPS = 4
         private const val FIRST_SUBSCRIBE_DELAY_MS = 700L
         private const val SUBSCRIBE_RETRY_MS = 2_000L
         private const val MAX_SUBSCRIBE_ATTEMPTS = 8
