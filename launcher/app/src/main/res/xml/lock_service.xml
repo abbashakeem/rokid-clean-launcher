@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  No key-event filtering: no flagRequestFilterKeyEvents, canRequestFilterKeyEvents=false. The service
+  cannot see or consume the touchpad, so it can never brick input. It only needs to exist so the app
+  can call performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN).
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeViewFocused"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRequestFilterKeyEvents="false"
+    android:notificationTimeout="0"
+    android:description="@string/lock_description" />

@@ -238,7 +238,7 @@ Grant two permissions once over USB. The first lets the brightness slider write 
 the second lets the now-playing pill read the Bluetooth music session:
 
 ```bash
-adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT && adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow && adb shell settings put secure enabled_accessibility_services com.abbas.hudlauncher/.HudAccessibilityService && adb shell settings put secure accessibility_enabled 1
+adb shell appops set com.abbas.hudlauncher WRITE_SETTINGS allow && adb shell cmd notification allow_listener com.abbas.hudlauncher/.HudNotificationListener && adb shell appops set com.abbas.hudlauncher GET_USAGE_STATS allow && adb shell appops set com.abbas.hudlauncher SYSTEM_ALERT_WINDOW allow && adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_CONNECT && adb shell appops set com.abbas.hudlauncher REQUEST_INSTALL_PACKAGES allow && adb shell settings put secure enabled_accessibility_services com.abbas.hudlauncher/.HudLockService && adb shell settings put secure accessibility_enabled 1
 ```
 
 The last two feed the return watcher. Rokid's assist server force-stops the foreground third-party app

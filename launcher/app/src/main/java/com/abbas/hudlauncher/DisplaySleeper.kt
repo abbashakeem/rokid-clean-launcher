@@ -1,53 +1,60 @@
 package com.abbas.hudlauncher
 
 import android.app.Activity
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.WindowManager
 
 /**
- * Keeps the HUD reliably visible and wakeable.
+ * Real display-off, done safely.
  *
- * An earlier version force-slept the panel (userActivityTimeout reflection, screenBrightness=0,
- * short system timeouts) to mimic Rokid's display-off. On the real glasses that produced a sleep
- * state the touchpad could not wake, bricking input. So this now does the one safe thing: hold the
- * screen on with FLAG_KEEP_SCREEN_ON while the HUD is in front. Auto display-off and on-demand sleep
- * are deliberately no-ops until they can be done with a primitive that wakes reliably on touch.
+ * Turning the panel off uses [HudLockService] (the system lock-screen action), which the system
+ * then wakes normally on the next touch or power press. There is NO direct power/brightness
+ * manipulation, so it cannot leave the device in an unwakeable state the way the first version did.
  *
- * The API is unchanged so callers (nav wake/hold, double-tap) keep compiling; the risky methods
- * simply keep the screen on instead of manipulating power.
+ * If the lock service is not enabled, display-off degrades to a no-op and the screen simply stays
+ * on (FLAG_KEEP_SCREEN_ON) — never an unwakeable blank.
  */
 class DisplaySleeper(private val activity: Activity, var idleMs: Long, private val content: View) {
+    private val handler = Handler(Looper.getMainLooper())
+    private val offRunnable = Runnable { turnOff("idle") }
+    private var holding = false
 
     fun onResume() {
         keepOn(true)
-        show()
+        content.visibility = View.VISIBLE
+        touch()
     }
 
     fun onPause() {
-        // nothing to tear down; the window flag clears with the window
+        handler.removeCallbacks(offRunnable)
     }
 
-    /** Any interaction: ensure the content is visible. No timer, so nothing can blank us. */
-    fun touch() = show()
-
-    /** Nav asked to bring the panel up; it is already on. */
-    fun wake() = show()
-
-    fun holdOn() = keepOn(true)
-    fun release() = keepOn(true)
-
-    /** Display-off is disabled for safety; keep the HUD visible instead of an unwakeable sleep. */
-    fun sleepNow() {
-        Log.d(TAG, "sleepNow ignored: auto display-off is disabled to keep input wakeable")
-        show()
+    /** Any interaction restarts the idle timer. */
+    fun touch() {
+        content.visibility = View.VISIBLE
+        if (holding) return
+        handler.removeCallbacks(offRunnable)
+        if (idleMs > 0) handler.postDelayed(offRunnable, idleMs)
     }
 
-    private fun show() {
-        if (content.visibility != View.VISIBLE) content.visibility = View.VISIBLE
-        val a = activity.window.attributes
-        if (a.screenBrightness != WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
-            activity.window.attributes = a.apply { screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+    /** Nav wants the panel up and kept on until [release]. */
+    fun wake() { holding = false; touch() }
+    fun holdOn() { holding = true; handler.removeCallbacks(offRunnable) }
+    fun release() { holding = false; touch() }
+
+    /** Double tap: turn the display off now. */
+    fun sleepNow() = turnOff("double tap")
+
+    private fun turnOff(why: String) {
+        handler.removeCallbacks(offRunnable)
+        if (HudLockService.available) {
+            Log.d(TAG, "display off ($why)")
+            HudLockService.turnScreenOff()
+        } else {
+            Log.d(TAG, "display-off requested ($why) but lock service not enabled; staying on")
         }
     }
 
