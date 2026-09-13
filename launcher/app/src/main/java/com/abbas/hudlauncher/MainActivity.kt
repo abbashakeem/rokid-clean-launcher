@@ -48,8 +48,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var barView: View
     private lateinit var btnMessages: ImageButton
     private lateinit var btnBrightness: ImageButton
-    private lateinit var messagesPanel: View
-    private lateinit var messagesRows: LinearLayout
     private lateinit var phoneLink: ImageView
     private lateinit var btnHome: ImageButton
     private lateinit var btnApps: ImageButton
@@ -155,8 +153,6 @@ class MainActivity : AppCompatActivity() {
         barView = findViewById(R.id.bar)
         btnMessages = findViewById(R.id.btn_messages)
         btnBrightness = findViewById(R.id.btn_brightness)
-        messagesPanel = findViewById(R.id.messages_panel)
-        messagesRows = findViewById(R.id.messages_rows)
         phoneLink = findViewById(R.id.phone_link)
         btnHome = findViewById(R.id.btn_home)
         btnApps = findViewById(R.id.btn_apps)
@@ -193,7 +189,6 @@ class MainActivity : AppCompatActivity() {
         scenes.onNavStop = { onNavStop() }
         scenes.onNavMap = { mode, png -> onNavMap(mode, png) }
         scenes.onPhoneLink = { renderPhoneLink() }
-        scenes.onMessages = { if (messagesPanel.visibility == View.VISIBLE) renderMessages(it) }
         updates = UpdateChecker(this)
         appPicker = AppPicker(this, findViewById(R.id.app_picker), findViewById(R.id.app_rows),
             findViewById(R.id.app_picker_title), scenes, extraEntries = {
@@ -225,7 +220,7 @@ class MainActivity : AppCompatActivity() {
             navDate.text = face.dateStrip
         }
 
-        btnMessages.setOnClickListener { openMessages() }
+        btnMessages.setOnClickListener { returnToNav() }
         btnBrightness.setOnClickListener { showBrightness() }
         btnHome.setOnClickListener { refreshNow() }
         btnApps.setOnClickListener { openAppPicker() }
@@ -246,7 +241,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (appPicker.isOpen) appPicker.close()
-        messagesPanel.visibility = View.GONE
         if (scenes.navActive && cfg.navCard != "off") navCardWanted = true
         applyVisibility()
         ticker.start()
@@ -449,38 +443,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openMessages() {
-        // during a route this button returns to the navigation card instead
-        if (scenes.navActive && cfg.navCard != "off") { navCardWanted = true; applyVisibility(); return }
-        messagesPanel.visibility = View.VISIBLE
-        renderMessages(scenes.messages.toList())
-        applyVisibility()
+    /**
+     * Return to the navigation card after accidentally leaving it. This button used to open a
+     * message history too; notifications already appear and dismiss on their own, so the history
+     * was dead weight and the button now exists only while a route is running.
+     */
+    private fun returnToNav() {
+        if (scenes.navActive && cfg.navCard != "off") { navCardWanted = true; applyVisibility() }
     }
 
-    private fun closeMessages() {
-        messagesPanel.visibility = View.GONE
-        applyVisibility()
-        btnMessages.requestFocus()
-    }
-
-    private fun renderMessages(list: List<PhoneMessage>) {
-        messagesRows.removeAllViews()
-        val inflater = LayoutInflater.from(this)
-        val fmt = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US)
-        if (list.isEmpty()) {
-            val row = inflater.inflate(R.layout.row_message, messagesRows, false)
-            row.findViewById<TextView>(R.id.msg_head).text = ""
-            row.findViewById<TextView>(R.id.msg_body).text = getString(R.string.no_messages)
-            messagesRows.addView(row)
-        }
-        for (m in list.asReversed().take(4)) {
-            val row = inflater.inflate(R.layout.row_message, messagesRows, false)
-            val time = if (m.time > 0) fmt.format(java.util.Date(m.time)) else ""
-            row.findViewById<TextView>(R.id.msg_head).text = listOf(time, m.app).filter { it.isNotBlank() }.joinToString("  ")
-            row.findViewById<TextView>(R.id.msg_body).text = listOf(m.title, m.text).filter { it.isNotBlank() }.joinToString(" — ")
-            messagesRows.addView(row)
-        }
-    }
 
     /**
      * One place decides what shows: picker > messages > nav card > home. Avoids the overlay bugs
@@ -489,16 +460,17 @@ class MainActivity : AppCompatActivity() {
     private var navCardWanted = false
     private fun applyVisibility() {
         val picker = appPicker.isOpen
-        val msgs = messagesPanel.visibility == View.VISIBLE
-        val nav = navCardWanted && !picker && !msgs
-        val home = !picker && !msgs && !nav
+        val nav = navCardWanted && !picker
+        val home = !picker && !nav
         navCard.visibility = if (nav) View.VISIBLE else View.GONE
         headerViews.forEach { it.visibility = if (home) View.VISIBLE else View.INVISIBLE }
         agendaView.visibility = if (home) View.VISIBLE else View.INVISIBLE
-        // while a route is active the Messages button becomes "back to navigation"
+        // Only meaningful during a route, so it is not shown at all otherwise rather than sitting
+        // there doing nothing.
         val navActive = scenes.navActive && cfg.navCard != "off"
-        btnMessages.setImageResource(if (navActive) R.drawable.nav_straight else R.drawable.ic_messages)
-        btnMessages.contentDescription = getString(if (navActive) R.string.btn_navigation else R.string.btn_messages)
+        btnMessages.visibility = if (navActive) View.VISIBLE else View.GONE
+        btnMessages.setImageResource(R.drawable.nav_straight)
+        btnMessages.contentDescription = getString(R.string.btn_navigation)
     }
 
     /** Like Rokid's app page: header and agenda hidden, carousel centred, bar stays with Apps focused. */
@@ -576,7 +548,6 @@ class MainActivity : AppCompatActivity() {
             KeyEvent.KEYCODE_NOTIFICATION -> Unit                                   // touch start: only wakes/resets idle
             KeyEvent.KEYCODE_BACK -> when {                                          // double tap
                 appPicker.isOpen -> closeAppPicker()
-                messagesPanel.visibility == View.VISIBLE -> closeMessages()
                 navCardWanted && navCard.visibility == View.VISIBLE -> { navCardWanted = false; applyVisibility() }
                 panelOpen -> hideBrightness()
                 else -> sleeper.sleepNow()
@@ -601,7 +572,7 @@ class MainActivity : AppCompatActivity() {
         } else if (panelOpen) {
             adjustBrightness(direction * BrightnessController.STEP)
         } else {
-            val buttons = listOf(btnMessages, btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
+            val buttons = listOfNotNull(btnMessages.takeIf { it.visibility == View.VISIBLE }, btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
             val i = buttons.indexOf(currentFocus).let { if (it < 0) 2 else it }
             buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }

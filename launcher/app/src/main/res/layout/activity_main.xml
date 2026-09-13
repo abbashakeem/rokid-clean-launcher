@@ -261,24 +261,7 @@
         </LinearLayout>
 
         <!-- Messages panel: last phone notifications relayed by the Rokid app -->
-        <LinearLayout android:id="@+id/messages_panel"
-            android:layout_width="match_parent" android:layout_height="0dp"
-            android:orientation="vertical"
-            android:background="@color/hud_black"
-            android:visibility="gone"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toTopOf="@id/bar">
-            <TextView android:id="@+id/messages_title" style="@style/HudText.Strip"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="@string/btn_messages" />
-            <LinearLayout android:id="@+id/messages_rows"
-                android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
-                android:layout_marginTop="6dp"
-                android:orientation="vertical"
-                android:showDividers="middle" android:divider="@drawable/row_divider" />
-        </LinearLayout>
+        
 
         <!-- Brightness picker overlay (hidden until the left button is pressed) -->
         <LinearLayout android:id="@+id/brightness_panel"
