@@ -20,7 +20,7 @@ struct ContentView: View {
                         if !ble.deviceName.isEmpty { Text(ble.deviceName).foregroundColor(.secondary).font(.caption) }
                     }
                     if case .error = ble.state {
-                        Button("Rescan") { ble.startScan() }
+                        Button("Retry") { ble.startAdvertising() }
                     }
                 } header: { Text("Glasses") }
 
@@ -44,7 +44,7 @@ struct ContentView: View {
                     Button { push(manual: true) } label: {
                         Label("Push now", systemImage: "arrow.up.circle.fill")
                     }
-                    .disabled(ble.state != .ready || !cal.authorized)
+                    .disabled(ble.state != .connected || !cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
                     Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
                         .font(.caption2).foregroundColor(.secondary)
@@ -61,7 +61,7 @@ struct ContentView: View {
 
     private func autoPush() {
         let now = Date().timeIntervalSince1970
-        guard ble.state == .ready, cal.authorized, now - lastAutoPush >= autoInterval else { return }
+        guard ble.state == .connected, cal.authorized, now - lastAutoPush >= autoInterval else { return }
         push(manual: false)
     }
 
@@ -75,17 +75,16 @@ struct ContentView: View {
 
     private var statusColor: Color {
         switch ble.state {
-        case .ready: return .green
-        case .scanning, .connecting: return .yellow
+        case .connected: return .green
+        case .advertising: return .yellow
         default: return .red
         }
     }
     private var statusText: String {
         switch ble.state {
         case .off: return "Bluetooth off"
-        case .scanning: return "Searching for glasses…"
-        case .connecting: return "Connecting…"
-        case .ready: return "Connected"
+        case .advertising: return "Waiting for glasses…"
+        case .connected: return "Connected"
         case .error(let m): return m
         }
     }

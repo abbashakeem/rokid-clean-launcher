@@ -2,73 +2,54 @@ import CoreBluetooth
 import Foundation
 import Combine
 
-/// Connects to the Rokid glasses and talks to OUR launcher's GATT service.
+/// Acts as the BLE **peripheral** so the glasses can connect to us.
 ///
-/// The glasses' controller allows only one advertiser and Rokid already uses it, so our launcher
-/// cannot advertise its own UUID. And because the glasses are already connected to iOS via the Rokid
-/// app, a normal scan will NOT surface them. So we primarily use retrieveConnectedPeripherals to grab
-/// the already-connected glasses, then discover our service among theirs; a broad scan is a fallback.
+/// The obvious design (glasses advertise, phone connects) is impossible: the Rokid firmware cannot
+/// advertise from a third-party app — `startAdvertising` never completes even with a clean Bluetooth
+/// stack, a free advertiser slot and permissions granted. Scanning from the glasses does work, so the
+/// roles are flipped. iOS supports peripheral mode well while the app is in the foreground, which is
+/// all we need for a calendar push.
 final class BLEClient: NSObject, ObservableObject {
-    enum State: Equatable { case off, scanning, connecting, ready, error(String) }
+    enum State: Equatable { case off, advertising, connected, error(String) }
 
     @Published var state: State = .off
     @Published var deviceName: String = ""
 
-    /// Fired when the write channel is ready (used for auto-push).
+    /// Fired when the glasses subscribe, i.e. the link is ready (used for auto-push).
     var onReady: (() -> Void)?
 
-    // Our launcher's service (must match BleServer.kt)
+    // Must match BleServer.kt / BleCentral.kt on the glasses.
     private let hudService = CBUUID(string: "6E5D0001-B00B-4B1D-8B00-0000000000A1")
-    private let hudWrite   = CBUUID(string: "6E5D0002-B00B-4B1D-8B00-0000000000A1")
     private let hudNotify  = CBUUID(string: "6E5D0003-B00B-4B1D-8B00-0000000000A1")
-    // Services the glasses are known to expose, used only to find the already-connected peripheral.
-    private let rokidService = CBUUID(string: "00009400-0000-1000-8000-00805F9B34FB")
 
-    private var central: CBCentralManager!
-    private var glasses: CBPeripheral?
-    private var writeChar: CBCharacteristic?
-    private var retryTimer: Timer?
+    private var manager: CBPeripheralManager!
+    private var notifyChar: CBMutableCharacteristic!
+    private var queue: [Data] = []
 
     override init() {
         super.init()
-        central = CBCentralManager(delegate: self, queue: nil)
+        manager = CBPeripheralManager(delegate: self, queue: nil)
     }
 
-    /// Find the glasses: prefer the already-connected device, fall back to scanning, and keep retrying.
-    func startScan() {
-        guard central.state == .poweredOn else { return }
-        if state != .ready { state = .scanning }
-        if tryConnected() { return }
-        central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
-        scheduleRetry()
+    /// Publish the service and start advertising so the glasses can find us.
+    func startAdvertising() {
+        guard manager.state == .poweredOn else { return }
+        manager.removeAllServices()
+        notifyChar = CBMutableCharacteristic(
+            type: hudNotify, properties: [.notify], value: nil, permissions: [.readable])
+        let svc = CBMutableService(type: hudService, primary: true)
+        svc.characteristics = [notifyChar]
+        manager.add(svc)
+        manager.startAdvertising([
+            CBAdvertisementDataServiceUUIDsKey: [hudService],
+            CBAdvertisementDataLocalNameKey: "HUD",
+        ])
+        state = .advertising
     }
 
-    private func tryConnected() -> Bool {
-        let candidates = central.retrieveConnectedPeripherals(withServices: [rokidService, hudService])
-        guard let p = candidates.first else { return false }
-        connect(p, name: p.name ?? "Glasses")
-        return true
-    }
-
-    private func scheduleRetry() {
-        retryTimer?.invalidate()
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            guard let self, self.state != .ready else { self?.retryTimer?.invalidate(); return }
-            _ = self.tryConnected()
-        }
-    }
-
-    private func connect(_ p: CBPeripheral, name: String) {
-        glasses = p
-        deviceName = name
-        state = .connecting
-        central.stopScan()
-        central.connect(p, options: nil)
-    }
-
-    /// Send one JSON message, framed as 4-byte big-endian length + UTF-8, chunked to the MTU.
+    /// Send one JSON message: 4-byte big-endian length + UTF-8, chunked to the negotiated MTU.
     func send(type: String, data: [String: Any]) {
-        guard let p = glasses, let ch = writeChar else { state = .error("not connected"); return }
+        guard state == .connected, notifyChar != nil else { state = .error("glasses not connected"); return }
         let payload: [String: Any] = ["type": type, "data": data]
         guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return }
         var framed = Data()
@@ -76,74 +57,51 @@ final class BLEClient: NSObject, ObservableObject {
         withUnsafeBytes(of: &len) { framed.append(contentsOf: $0) }
         framed.append(json)
 
-        let mtu = max(20, p.maximumWriteValueLength(for: .withoutResponse))
+        // 20 is the safe floor before MTU negotiation; the glasses request 512.
+        let mtu = 180
         var offset = 0
+        queue.removeAll()
         while offset < framed.count {
             let end = min(offset + mtu, framed.count)
-            p.writeValue(framed.subdata(in: offset..<end), for: ch, type: .withoutResponse)
+            queue.append(framed.subdata(in: offset..<end))
             offset = end
         }
+        flush()
+    }
+
+    private func flush() {
+        while let next = queue.first {
+            let ok = manager.updateValue(next, for: notifyChar, onSubscribedCentrals: nil)
+            if !ok { return }              // buffer full; resumes in peripheralManagerIsReady
+            queue.removeFirst()
+        }
     }
 }
 
-extension BLEClient: CBCentralManagerDelegate {
-    func centralManagerDidUpdateState(_ c: CBCentralManager) {
-        switch c.state {
-        case .poweredOn: startScan()
+extension BLEClient: CBPeripheralManagerDelegate {
+    func peripheralManagerDidUpdateState(_ p: CBPeripheralManager) {
+        switch p.state {
+        case .poweredOn: startAdvertising()
         case .poweredOff: state = .off
-        default: state = .error("bluetooth \(c.state.rawValue)")
+        default: state = .error("bluetooth \(p.state.rawValue)")
         }
     }
 
-    func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral,
-                        advertisementData: [String: Any], rssi: NSNumber) {
-        let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? (p.name ?? "")
-        let services = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
-        let looksLikeGlasses = services.contains(rokidService)
-            || name.lowercased().contains("rokid") || name.lowercased().contains("glass")
-        guard looksLikeGlasses else { return }
-        connect(p, name: name.isEmpty ? "Glasses" : name)
+    func peripheralManager(_ p: CBPeripheralManager, central: CBCentral,
+                           didSubscribeTo characteristic: CBCharacteristic) {
+        deviceName = "Glasses"
+        state = .connected
+        onReady?()
     }
 
-    func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
-        p.delegate = self
-        p.discoverServices([hudService])
+    func peripheralManager(_ p: CBPeripheralManager, central: CBCentral,
+                           didUnsubscribeFrom characteristic: CBCharacteristic) {
+        state = .advertising
     }
 
-    func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        state = .error("connect failed"); startScan()
-    }
+    func peripheralManagerIsReady(toUpdateSubscribers p: CBPeripheralManager) { flush() }
 
-    func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        writeChar = nil
-        if state == .ready { state = .scanning }
-        startScan()
-    }
-}
-
-extension BLEClient: CBPeripheralDelegate {
-    func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let svc = p.services?.first(where: { $0.uuid == hudService }) else {
-            // this peripheral doesn't have our service; drop it and keep looking
-            state = .scanning
-            central.cancelPeripheralConnection(p)
-            startScan()
-            return
-        }
-        p.discoverCharacteristics([hudWrite, hudNotify], for: svc)
-    }
-
-    func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor svc: CBService, error: Error?) {
-        for ch in svc.characteristics ?? [] {
-            if ch.uuid == hudWrite { writeChar = ch }
-            if ch.uuid == hudNotify { p.setNotifyValue(true, for: ch) }
-        }
-        if writeChar != nil {
-            retryTimer?.invalidate()
-            state = .ready
-            onReady?()
-        } else {
-            state = .error("write characteristic missing")
-        }
+    func peripheralManager(_ p: CBPeripheralManager, didAdd service: CBService, error: Error?) {
+        if let error { state = .error("publish failed: \(error.localizedDescription)") }
     }
 }

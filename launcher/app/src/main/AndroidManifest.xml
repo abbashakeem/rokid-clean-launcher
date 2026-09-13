@@ -9,6 +9,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- our own BLE server for the iPhone app: adb shell pm grant com.abbas.hudlauncher android.permission.BLUETOOTH_ADVERTISE -->
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!--
+      This firmware reports SDK 32 but does not define Android 12's Bluetooth runtime permissions
+      ("Unknown permission: BLUETOOTH_SCAN"), so it enforces the LEGACY model. There, BLE scanning
+      silently returns zero results without location permission, and location services must be on.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- this Rokid build enforces the legacy permission for the advertiser -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />

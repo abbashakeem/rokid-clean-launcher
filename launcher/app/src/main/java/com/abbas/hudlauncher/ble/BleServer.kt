@@ -104,12 +104,47 @@ class BleServer(private val context: Context) {
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE))
             .build()
-        advertiser?.startAdvertising(settings, data, advCallback)
+        val adv = advertiser
+        Log.d(TAG, "startAdvertising, advertiser=${adv != null}")
+        adv?.startAdvertising(settings, data, advCallback)
+
+        // The legacy path can wedge on this device ("advertiser not finished registration"), so also
+        // try the modern advertising-set API, which registers through a different code path.
+        try {
+            val setParams = android.bluetooth.le.AdvertisingSetParameters.Builder()
+                .setLegacyMode(true)
+                .setConnectable(true)
+                .setScannable(true)
+                .setInterval(android.bluetooth.le.AdvertisingSetParameters.INTERVAL_MEDIUM)
+                .setTxPowerLevel(android.bluetooth.le.AdvertisingSetParameters.TX_POWER_MEDIUM)
+                .build()
+            adv?.startAdvertisingSet(setParams, data, null, null, null, setCallback)
+        } catch (e: Throwable) {
+            Log.w(TAG, "advertisingSet unavailable: ${e.message}")
+        }
+    }
+
+    private val setCallback = object : android.bluetooth.le.AdvertisingSetCallback() {
+        override fun onAdvertisingSetStarted(
+            set: android.bluetooth.le.AdvertisingSet?, txPower: Int, status: Int,
+        ) {
+            Log.d(TAG, if (status == 0) "ADVERTISING SET OK (tx=$txPower)" else "advertising set failed: status=$status")
+        }
     }
 
     private val advCallback = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) { Log.d(TAG, "advertising") }
-        override fun onStartFailure(errorCode: Int) { Log.w(TAG, "advertise failed: $errorCode") }
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings) { Log.d(TAG, "ADVERTISING OK") }
+        override fun onStartFailure(errorCode: Int) {
+            val why = when (errorCode) {
+                ADVERTISE_FAILED_DATA_TOO_LARGE -> "data too large"
+                ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "too many advertisers (Rokid holds the slot)"
+                ADVERTISE_FAILED_ALREADY_STARTED -> "already started"
+                ADVERTISE_FAILED_INTERNAL_ERROR -> "internal error"
+                ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "feature unsupported"
+                else -> "code $errorCode"
+            }
+            Log.w(TAG, "ADVERTISE FAILED: $why")
+        }
     }
 
     @SuppressLint("MissingPermission")
