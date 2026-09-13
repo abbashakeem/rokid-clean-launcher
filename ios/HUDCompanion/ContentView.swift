@@ -76,14 +76,15 @@ struct ContentView: View {
     private var statusColor: Color {
         switch ble.state {
         case .connected: return .green
-        case .advertising: return .yellow
+        case .publishing, .advertising: return .yellow
         default: return .red
         }
     }
     private var statusText: String {
         switch ble.state {
         case .off: return "Bluetooth off"
-        case .advertising: return "Waiting for glasses…"
+        case .publishing: return "Publishing service…"
+        case .advertising: return "Advertising, waiting for glasses…"
         case .connected: return "Connected"
         case .error(let m): return m
         }

@@ -10,7 +10,7 @@ import Combine
 /// roles are flipped. iOS supports peripheral mode well while the app is in the foreground, which is
 /// all we need for a calendar push.
 final class BLEClient: NSObject, ObservableObject {
-    enum State: Equatable { case off, advertising, connected, error(String) }
+    enum State: Equatable { case off, publishing, advertising, connected, error(String) }
 
     @Published var state: State = .off
     @Published var deviceName: String = ""
@@ -42,7 +42,7 @@ final class BLEClient: NSObject, ObservableObject {
         // Advertise only once the service is actually published (see didAdd). Advertising
         // immediately after add() is a race and can leave us advertising without the service.
         manager.add(svc)
-        state = .advertising
+        state = .publishing
     }
 
     /// Send one JSON message: 4-byte big-endian length + UTF-8, chunked to the negotiated MTU.
@@ -108,6 +108,12 @@ extension BLEClient: CBPeripheralManagerDelegate {
             CBAdvertisementDataServiceUUIDsKey: [hudService],
             CBAdvertisementDataLocalNameKey: "HUD",
         ])
-        state = .advertising
+        // confirm the radio actually started, rather than assuming
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            if self.state != .connected {
+                self.state = p.isAdvertising ? .advertising : .error("radio not advertising")
+            }
+        }
     }
 }
