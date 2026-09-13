@@ -98,6 +98,14 @@ class AppPicker(
         })
     }
 
+    /** Entry matching a configured shortcut label, or null when unset or unknown. */
+    fun entryFor(label: String): AppEntry? =
+        if (label.isBlank()) null
+        else buildEntries().firstOrNull { it.label.equals(label, ignoreCase = true) }
+
+    /** Labels a companion app can offer as shortcut choices. */
+    fun labels(): List<String> = buildEntries().map { it.label }
+
     private fun buildEntries(): List<AppEntry> = listOf(
         AppEntry("Translation", R.drawable.app_translate) { scenes.openScene(RokidScenes.SCENE_TRANSLATE) },
         AppEntry("Teleprompter", R.drawable.app_prompter) { scenes.openScene(RokidScenes.SCENE_TELEPROMPTER) },

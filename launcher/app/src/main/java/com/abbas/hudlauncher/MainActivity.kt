@@ -220,7 +220,7 @@ class MainActivity : AppCompatActivity() {
             navDate.text = face.dateStrip
         }
 
-        btnMessages.setOnClickListener { returnToNav() }
+        btnMessages.setOnClickListener { onSpareButton() }
         btnBrightness.setOnClickListener { showBrightness() }
         btnHome.setOnClickListener { refreshNow() }
         btnApps.setOnClickListener { openAppPicker() }
@@ -444,12 +444,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Return to the navigation card after accidentally leaving it. This button used to open a
-     * message history too; notifications already appear and dismiss on their own, so the history
-     * was dead weight and the button now exists only while a route is running.
+     * The spare bottom-bar button. During a route it returns to the navigation card, which is the
+     * whole reason it exists: leave the card by accident and you need a way back. Otherwise it
+     * opens whichever app has been chosen in settings, falling back to the app picker when nothing
+     * is set or the chosen app is gone, so it is never a button that does nothing.
      */
-    private fun returnToNav() {
-        if (scenes.navActive && cfg.navCard != "off") { navCardWanted = true; applyVisibility() }
+    private fun onSpareButton() {
+        if (scenes.navActive && cfg.navCard != "off") { navCardWanted = true; applyVisibility(); return }
+        val entry = appPicker.entryFor(cfg.shortcutApp)
+        if (entry != null) {
+            try { entry.action(); return } catch (e: Exception) {
+                Log.w(TAG, "shortcut ${entry.label} failed: ${e.message}")
+            }
+        }
+        openAppPicker()
     }
 
 
@@ -465,12 +473,15 @@ class MainActivity : AppCompatActivity() {
         navCard.visibility = if (nav) View.VISIBLE else View.GONE
         headerViews.forEach { it.visibility = if (home) View.VISIBLE else View.INVISIBLE }
         agendaView.visibility = if (home) View.VISIBLE else View.INVISIBLE
-        // Only meaningful during a route, so it is not shown at all otherwise rather than sitting
-        // there doing nothing.
+        // Always present so the bar does not reflow: it is the "back to navigation" control during
+        // a route and a shortcut to a chosen app the rest of the time.
         val navActive = scenes.navActive && cfg.navCard != "off"
-        btnMessages.visibility = if (navActive) View.VISIBLE else View.GONE
-        btnMessages.setImageResource(R.drawable.nav_straight)
-        btnMessages.contentDescription = getString(R.string.btn_navigation)
+        btnMessages.visibility = View.VISIBLE
+        val shortcut = appPicker.entryFor(cfg.shortcutApp)
+        btnMessages.setImageResource(
+            if (navActive) R.drawable.nav_straight else shortcut?.iconRes ?: R.drawable.ic_apps)
+        btnMessages.contentDescription =
+            if (navActive) getString(R.string.btn_navigation) else shortcut?.label ?: getString(R.string.btn_apps)
     }
 
     /** Like Rokid's app page: header and agenda hidden, carousel centred, bar stays with Apps focused. */
@@ -572,7 +583,7 @@ class MainActivity : AppCompatActivity() {
         } else if (panelOpen) {
             adjustBrightness(direction * BrightnessController.STEP)
         } else {
-            val buttons = listOfNotNull(btnMessages.takeIf { it.visibility == View.VISIBLE }, btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
+            val buttons = listOf(btnMessages, btnBrightness, if (musicPill.visibility == View.VISIBLE) musicPill else btnHome, btnApps)
             val i = buttons.indexOf(currentFocus).let { if (it < 0) 2 else it }
             buttons[(i + direction).coerceIn(0, buttons.lastIndex)].requestFocus()
         }

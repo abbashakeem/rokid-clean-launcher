@@ -32,6 +32,7 @@ class LauncherSettings(BaseModel):
     marquee_titles: bool = True
     nav_map_tint: bool = True                                           # recolour the phone's map image to the HUD green ramp
     auto_update: bool = True                                            # check the backend for a newer launcher build
+    shortcut_app: str = ""                                              # app-picker entry the spare bottom-bar button opens; blank = the picker
 
 
 class SettingsStore:

@@ -24,6 +24,8 @@ data class LauncherConfig(
     val navTakeOver: Boolean = true,
     val navMapTint: Boolean = true,
     val autoUpdate: Boolean = true,
+    /** App-picker entry the spare bottom-bar button opens; blank opens the picker itself. */
+    val shortcutApp: String = "",
 ) {
     companion object {
         fun fromJson(j: JSONObject) = LauncherConfig(
@@ -43,6 +45,7 @@ data class LauncherConfig(
             navTakeOver = j.optBoolean("nav_take_over", true),
             navMapTint = j.optBoolean("nav_map_tint", true),
             autoUpdate = j.optBoolean("auto_update", true),
+            shortcutApp = j.optString("shortcut_app", ""),
         )
     }
 }

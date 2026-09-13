@@ -183,6 +183,7 @@ SETTINGS_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="
  <label>Agenda rows <input type="number" name="max_events" min="1" max="6"></label>
  <label>Scroll long titles <input type="checkbox" name="marquee_titles"></label>
  <label>Auto-update the launcher <input type="checkbox" name="auto_update"></label>
+ <label>Spare button opens <select name="shortcut_app"><option value="">App picker</option><option value="Translation">Translation</option><option value="Teleprompter">Teleprompter</option><option value="Subtitles">Subtitles</option><option value="Music">Music</option><option value="Camera">Camera</option><option value="Sound recorder">Sound recorder</option><option value="Navigation">Navigation</option><option value="Vision AI">Vision AI</option><option value="Device info">Device info</option><option value="Settings">Settings</option><option value="Rokid home">Rokid home</option></select></label>
 </fieldset>
 <fieldset><legend>Display</legend>
  <label>Display off after idle (s) <input type="number" name="idle_off_seconds" min="2" max="60"></label>
