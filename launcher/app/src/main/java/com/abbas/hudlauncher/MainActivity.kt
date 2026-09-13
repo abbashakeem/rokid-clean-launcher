@@ -101,6 +101,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var batteryText: TextView
     private lateinit var wifiIcon: WifiView
     private var statusJob: Job? = null
+    /**
+     * Restart the idle timer whenever the panel comes back on.
+     *
+     * Waking the display does not reliably run onResume: the activity is often never paused when
+     * the screen goes off, so nothing reschedules the idle countdown and the HUD then stays lit
+     * forever. SCREEN_ON is the one signal that always fires, so hang the timer off that.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    Log.d(TAG, "screen on; restarting idle timer")
+                    sleeper.touch()
+                }
+                Intent.ACTION_SCREEN_OFF -> sleeper.onPause()
+            }
+        }
+    }
+
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
@@ -242,6 +261,11 @@ class MainActivity : AppCompatActivity() {
             scenes.bind()
             media.start()
             registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            registerReceiver(screenReceiver, IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+            })
         }
         statusJob = lifecycleScope.launch {
             while (isActive) { updateWifi(); renderPhoneLink(); media.refresh(); delay(Config.STATUS_REFRESH_MS) }
@@ -261,6 +285,7 @@ class MainActivity : AppCompatActivity() {
         sleeper.onPause()
         setSystemClickSounds(true)
         try { unregisterReceiver(batteryReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
         statusJob?.cancel()
         media.stop()
     }
