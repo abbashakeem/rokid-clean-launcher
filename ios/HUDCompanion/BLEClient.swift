@@ -35,7 +35,11 @@ final class BLEClient: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        manager = CBPeripheralManager(delegate: self, queue: nil)
+        // The restore identifier opts this manager into state preservation, so iOS can relaunch the
+        // app into the background to service an existing link instead of the link dying with the UI.
+        manager = CBPeripheralManager(
+            delegate: self, queue: nil,
+            options: [CBPeripheralManagerOptionRestoreIdentifierKey: "HUDCompanionPeripheral"])
     }
 
     /// Publish the service and start advertising so the glasses can find us.
@@ -60,6 +64,9 @@ final class BLEClient: NSObject, ObservableObject {
         svc.characteristics = [notifyChar]
         // Advertise only once the service is actually published (see didAdd). Advertising
         // immediately after add() is a race and can leave us advertising without the service.
+        // Claim the slot before add() rather than in didAdd: the callback is async, so anything that
+        // calls this again in between would publish a second copy of the service.
+        servicePublished = true
         manager.add(svc)
         state = .publishing
     }
@@ -107,6 +114,19 @@ final class BLEClient: NSObject, ObservableObject {
 }
 
 extension BLEClient: CBPeripheralManagerDelegate {
+    /// Called before `peripheralManagerDidUpdateState` when iOS relaunches us for a Bluetooth event.
+    /// The services it hands back are already published, so republishing would create a duplicate.
+    func peripheralManager(_ p: CBPeripheralManager,
+                           willRestoreState dict: [String: Any]) {
+        let services = dict[CBPeripheralManagerRestoredStateServicesKey] as? [CBMutableService] ?? []
+        if let restored = services.first(where: { $0.uuid == hudService }),
+           let ch = restored.characteristics?.first(where: { $0.uuid == hudNotify })
+                    as? CBMutableCharacteristic {
+            notifyChar = ch
+            servicePublished = true
+        }
+    }
+
     func peripheralManagerDidUpdateState(_ p: CBPeripheralManager) {
         switch p.state {
         case .poweredOn: startAdvertising()
@@ -134,10 +154,10 @@ extension BLEClient: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ p: CBPeripheralManager, didAdd service: CBService, error: Error?) {
         if let error {
+            servicePublished = false
             state = .error("publish failed: \(error.localizedDescription)")
             return
         }
-        servicePublished = true
         beginAdvertising()
         // confirm the radio actually started, rather than assuming
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in

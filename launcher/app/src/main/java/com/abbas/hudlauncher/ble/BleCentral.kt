@@ -37,6 +37,23 @@ class BleCentral(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var scanning = false
     private var inbound: ByteBuffer? = null
+
+    /**
+     * Address of the phone we last talked to, remembered across restarts.
+     *
+     * A backgrounded iOS app drops the local name from its advertisement and moves the service UUID
+     * into an overflow area that only Apple centrals can read, so scanning cannot find it. A direct
+     * autoConnect to the known address does not depend on the advertisement's contents, which is the
+     * only way to get the link back while the companion app is not on screen.
+     */
+    private var lastAddress: String?
+        get() = prefs.getString(KEY_ADDRESS, null)
+        set(v) { prefs.edit().putString(KEY_ADDRESS, v).apply() }
+
+    private val prefs by lazy { context.getSharedPreferences("hud", Context.MODE_PRIVATE) }
+    private var autoConnectTried = false
+    /** True only once the link is actually up; an armed autoConnect is pending, not connected. */
+    private var connected = false
     /**
      * One-shot guards. iOS peripherals emit a Service Changed indication shortly after connecting,
      * so `onServicesDiscovered` fires twice; the second CCCD write collides with the first still in
@@ -76,6 +93,7 @@ class BleCentral(private val context: Context) {
             scanner.startScan(filters, settings, callback)
             scanning = true
             Log.d(TAG, "scanning for companion app")
+            tryDirectReconnect()
             handler.removeCallbacks(rescan)
             handler.postDelayed(rescan, RESCAN_MS)
         } catch (e: Throwable) {
@@ -85,7 +103,7 @@ class BleCentral(private val context: Context) {
 
     /** Bounce the scan so a throttled or silently-dead scanner recovers on its own. */
     private fun restartScan() {
-        if (gatt != null) return                       // already connected; nothing to look for
+        if (connected) return                          // link is up; nothing to look for
         Log.d(TAG, "no companion yet; restarting scan")
         try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
         scanning = false
@@ -118,12 +136,42 @@ class BleCentral(private val context: Context) {
                 Log.d(TAG, "saw ${result.device.address} name='$name' uuids=$uuids")
             }
             if (!uuids.contains(BleServer.SERVICE) && name != ADV_NAME) return
-                Log.d(TAG, "found companion ${result.device.address} rssi=${result.rssi}")
+                if (connected) return
+            if (gatt != null) {
+                if (gatt?.device?.address == result.device.address) return   // autoConnect will land
+                // The phone rotated its private address, so the armed autoConnect is aimed at an
+                // address that no longer exists. Drop it and connect to the one we can actually see.
+                Log.d(TAG, "address changed; dropping stale autoConnect")
+                try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {}
+                gatt = null
+            }
+            Log.d(TAG, "found companion ${result.device.address} rssi=${result.rssi}")
             stopScan()
             connect(result.device)
         }
 
         override fun onScanFailed(errorCode: Int) { Log.w(TAG, "scan failed code=$errorCode"); scanning = false }
+    }
+
+    /**
+     * Ask the stack to reconnect to the remembered phone whenever it reappears, alongside the scan.
+     *
+     * autoConnect has no timeout: it stays armed in the background and fires on its own, so this
+     * covers the case scanning cannot (a backgrounded companion app). It only works while the phone
+     * keeps the same address, so the scan stays running as the fallback for an address rotation.
+     */
+    @SuppressLint("MissingPermission")
+    private fun tryDirectReconnect() {
+        if (autoConnectTried || gatt != null) return
+        val addr = lastAddress ?: return
+        autoConnectTried = true
+        try {
+            val device = manager.adapter?.getRemoteDevice(addr) ?: return
+            Log.d(TAG, "arming autoConnect to $addr")
+            gatt = device.connectGatt(context, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } catch (e: Throwable) {
+            Log.w(TAG, "autoConnect failed: ${e.message}")
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -136,6 +184,9 @@ class BleCentral(private val context: Context) {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.d(TAG, "connected to companion")
+                connected = true
+                lastAddress = g.device.address
+                stopScan()
                 // 512 is rejected by some peripherals; 185 is iOS's own ceiling and is known-good
                 // on this firmware (RokidKeyboard uses it). Fall straight through if the request
                 // cannot even be queued, otherwise discovery would never start.
@@ -143,10 +194,12 @@ class BleCentral(private val context: Context) {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.d(TAG, "companion disconnected")
                 inbound = null
+                connected = false
                 discoveryStarted = false
                 subscribed = false
                 subscribeAttempts = 0
                 discoveryAttempts = 0
+                autoConnectTried = false
                 handler.removeCallbacksAndMessages(null)
                 handler.removeCallbacks(subscribeRetry)
                 try { g.close() } catch (_: Exception) {}
@@ -319,6 +372,7 @@ class BleCentral(private val context: Context) {
         private const val REFRESH_SETTLE_MS = 700L
         private const val DISCOVERY_RETRY_MS = 2_500L
         private const val MAX_DISCOVERY_ATTEMPTS = 4
+        private const val KEY_ADDRESS = "ble_last_address"
         /** CBAdvertisementDataLocalNameKey set by the iPhone companion app. */
         private const val ADV_NAME = "HUD"
     }
