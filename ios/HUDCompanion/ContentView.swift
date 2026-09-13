@@ -61,13 +61,18 @@ struct ContentView: View {
 
     private func autoPush() {
         let now = Date().timeIntervalSince1970
-        guard ble.state == .connected || ble.state == .advertising, cal.authorized, now - lastAutoPush >= autoInterval else { return }
+        guard ble.state == .connected, cal.authorized, now - lastAutoPush >= autoInterval else { return }
         push(manual: false)
     }
 
     private func push(manual: Bool) {
         let events = cal.events()
-        ble.send(type: "calendar", data: ["events": events])
+        // Only claim a push happened if the transport actually accepted it, otherwise the status
+        // line reports events that were never delivered.
+        guard ble.send(type: "calendar", data: ["events": events]) else {
+            lastPush = "Not sent: glasses not connected"
+            return
+        }
         if !manual { lastAutoPush = Date().timeIntervalSince1970 }
         let kind = manual ? "Pushed" : "Auto-pushed"
         lastPush = "\(kind) \(events.count) events at \(Date().formatted(date: .omitted, time: .shortened))"

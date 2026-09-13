@@ -37,26 +37,65 @@ class BleCentral(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var scanning = false
     private var inbound: ByteBuffer? = null
+    /**
+     * One-shot guards. iOS peripherals emit a Service Changed indication shortly after connecting,
+     * so `onServicesDiscovered` fires twice; the second CCCD write collides with the first still in
+     * flight, the stack drops both, `onDescriptorWrite` never arrives and the phone never sees a
+     * subscriber. Do each step exactly once per connection.
+     */
+    private var discoveryStarted = false
+    private var subscribed = false
+
+    /**
+     * Android silently blacklists an app that starts more than 5 scans per 30 seconds: startScan
+     * succeeds, onScanFailed never fires, and zero results arrive. A single long-running scan also
+     * goes quiet after the screen sleeps. So restart the scan on a slow cadence that stays well
+     * inside the quota, and keep doing it until the phone is found.
+     */
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val rescan = Runnable { restartScan() }
+    private var subscribeAttempts = 0
+    private var discoveryAttempts = 0
+    private val subscribeRetry = Runnable { gatt?.let { trySubscribe(it) } }
 
     @SuppressLint("MissingPermission")
     fun startScan() {
         try {
             val scanner = manager.adapter?.bluetoothLeScanner ?: run { Log.w(TAG, "no scanner"); return }
             if (scanning) return
-            // No hardware filter: offloaded 128-bit UUID filtering is unreliable on this chipset,
-            // and iOS may put the service UUID in the scan response rather than the advert. Match in
-            // software instead (see onScanResult).
+            // A filter is mandatory, not an optimisation: Android refuses to run an unfiltered scan
+            // while the screen is off ("Cannot start unfiltered scan in screen-off"), and a HUD
+            // spends most of its life with the display asleep. Filters are OR-ed, so match either
+            // the service UUID or the advertised name in case iOS moves the UUID into the scan
+            // response; onScanResult still confirms in software.
+            val filters = listOf(
+                ScanFilter.Builder().setServiceUuid(ParcelUuid(BleServer.SERVICE)).build(),
+                ScanFilter.Builder().setDeviceName(ADV_NAME).build(),
+            )
             val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
-            scanner.startScan(null, settings, callback)
+            scanner.startScan(filters, settings, callback)
             scanning = true
             Log.d(TAG, "scanning for companion app")
+            handler.removeCallbacks(rescan)
+            handler.postDelayed(rescan, RESCAN_MS)
         } catch (e: Throwable) {
             Log.w(TAG, "scan failed: ${e.message}")
         }
     }
 
+    /** Bounce the scan so a throttled or silently-dead scanner recovers on its own. */
+    private fun restartScan() {
+        if (gatt != null) return                       // already connected; nothing to look for
+        Log.d(TAG, "no companion yet; restarting scan")
+        try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
+        scanning = false
+        seen.clear()
+        startScan()
+    }
+
     @SuppressLint("MissingPermission")
     fun stopScan() {
+        handler.removeCallbacks(rescan)
         try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
         scanning = false
     }
@@ -78,8 +117,8 @@ class BleCentral(private val context: Context) {
             if (seen.add(result.device.address)) {
                 Log.d(TAG, "saw ${result.device.address} name='$name' uuids=$uuids")
             }
-            if (!uuids.contains(BleServer.SERVICE)) return
-            Log.d(TAG, "found companion ${result.device.address} rssi=${result.rssi}")
+            if (!uuids.contains(BleServer.SERVICE) && name != ADV_NAME) return
+                Log.d(TAG, "found companion ${result.device.address} rssi=${result.rssi}")
             stopScan()
             connect(result.device)
         }
@@ -97,10 +136,19 @@ class BleCentral(private val context: Context) {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.d(TAG, "connected to companion")
-                g.requestMtu(512)
+                // 512 is rejected by some peripherals; 185 is iOS's own ceiling and is known-good
+                // on this firmware (RokidKeyboard uses it). Fall straight through if the request
+                // cannot even be queued, otherwise discovery would never start.
+                if (!g.requestMtu(185)) startDiscovery(g)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.d(TAG, "companion disconnected")
                 inbound = null
+                discoveryStarted = false
+                subscribed = false
+                subscribeAttempts = 0
+                discoveryAttempts = 0
+                handler.removeCallbacksAndMessages(null)
+                handler.removeCallbacks(subscribeRetry)
                 try { g.close() } catch (_: Exception) {}
                 gatt = null
                 startScan()
@@ -108,20 +156,37 @@ class BleCentral(private val context: Context) {
         }
 
         @SuppressLint("MissingPermission")
-        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) { g.discoverServices() }
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            Log.d(TAG, "mtu=$mtu status=$status")
+            startDiscovery(g)
+        }
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            val svc = g.getService(BleServer.SERVICE) ?: run { Log.w(TAG, "service missing"); return }
-            val notify = svc.getCharacteristic(BleServer.CHAR_NOTIFY) ?: run { Log.w(TAG, "notify char missing"); return }
-            g.setCharacteristicNotification(notify, true)
-            notify.getDescriptor(BleServer.CCCD)?.let { d ->
-                @Suppress("DEPRECATION")
-                d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                @Suppress("DEPRECATION")
-                g.writeDescriptor(d)
+            if (status != BluetoothGatt.GATT_SUCCESS) { Log.w(TAG, "discovery failed status=$status"); return }
+            for (svc in g.services) {
+                Log.d(TAG, "svc ${svc.uuid}")
+                for (ch in svc.characteristics) {
+                    Log.d(TAG, "   char ${ch.uuid} props=0x%02x descs=%s"
+                        .format(ch.properties, ch.descriptors.map { it.uuid }))
+                }
             }
-            Log.d(TAG, "subscribed; waiting for data")
+            if (subscribeAttempts > 0) return    // Service Changed re-discovery; already under way
+            // A CCCD write issued in this callback is routinely dropped: the stack is still settling
+            // the connection (a second MTU callback arrives after it) and the write never completes,
+            // so the phone never registers a subscriber and its notifications go nowhere. Delay the
+            // first attempt, then retry until onDescriptorWrite actually confirms.
+            handler.postDelayed({ trySubscribe(g) }, FIRST_SUBSCRIBE_DELAY_MS)
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                // Do NOT stop here: a successful write may have landed on an orphaned instance.
+                // Keep cycling through the remaining instances until data actually arrives.
+                Log.d(TAG, "CCCD written on instance #${subscribeAttempts - 1}")
+            } else {
+                Log.w(TAG, "CCCD write FAILED status=$status")
+            }
         }
 
         @Suppress("DEPRECATION")
@@ -134,8 +199,94 @@ class BleCentral(private val context: Context) {
         }
     }
 
+    /**
+     * Write the CCCD, retrying until [onDescriptorWrite] confirms it.
+     *
+     * The peripheral can expose the same service UUID more than once: iOS keeps an earlier
+     * registration alive when the app republishes, so the database holds a live instance and an
+     * orphaned one. `getService()` returns only the first match, and subscribing to the orphan
+     * reports GATT_SUCCESS while the phone never sees a subscriber and sends nothing. So collect
+     * every matching instance and subscribe to each in turn; extra subscriptions are harmless.
+     */
+    @SuppressLint("MissingPermission")
+    private fun trySubscribe(g: BluetoothGatt) {
+        if (subscribed) return
+        val candidates = g.services
+            .filter { it.uuid == BleServer.SERVICE }
+            .mapNotNull { it.getCharacteristic(BleServer.CHAR_NOTIFY) }
+        if (candidates.isEmpty()) { Log.w(TAG, "notify char missing"); return }
+        val notify = candidates[subscribeAttempts % candidates.size]
+        val cccd = notify.getDescriptor(BleServer.CCCD)
+            ?: run { Log.w(TAG, "no CCCD on notify characteristic; cannot subscribe"); return }
+        Log.d(TAG, "service instances=${candidates.size}, using #${subscribeAttempts % candidates.size}")
+        subscribeAttempts++
+        val notifSet = g.setCharacteristicNotification(notify, true)
+        val ok = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            g.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) ==
+                BluetoothGatt.GATT_SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                g.writeDescriptor(cccd)
+            }
+        }
+        Log.d(TAG, "subscribe attempt $subscribeAttempts: setNotification=$notifSet write=$ok")
+        if (subscribeAttempts < MAX_SUBSCRIBE_ATTEMPTS) {
+            handler.removeCallbacks(subscribeRetry)
+            handler.postDelayed(subscribeRetry, SUBSCRIBE_RETRY_MS)
+        } else {
+            Log.w(TAG, "gave up subscribing after $subscribeAttempts attempts")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startDiscovery(g: BluetoothGatt) {
+        if (discoveryStarted) return
+        discoveryStarted = true
+        refreshCache(g)
+        // refresh() clears the cache asynchronously; discovering immediately after races it and the
+        // discovery silently never completes. Give the stack a moment, then retry until it lands.
+        handler.postDelayed({ requestDiscovery(g) }, REFRESH_SETTLE_MS)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun requestDiscovery(g: BluetoothGatt) {
+        if (subscribeAttempts > 0 || subscribed) return
+        discoveryAttempts++
+        val ok = g.discoverServices()
+        Log.d(TAG, "discovery attempt $discoveryAttempts: started=$ok")
+        if (discoveryAttempts < MAX_DISCOVERY_ATTEMPTS) {
+            handler.postDelayed({ requestDiscovery(g) }, DISCOVERY_RETRY_MS)
+        }
+    }
+
+    /**
+     * Drop Android's cached copy of the remote GATT database before discovering.
+     *
+     * Without this the stack reuses handles it learned on an earlier connection. When the phone app
+     * changes its service definition, the cached handles no longer line up: a CCCD write reports
+     * GATT_SUCCESS against a stale handle while the phone never registers a subscriber and its
+     * notifications go nowhere. `refresh()` is public in the framework but hidden from the SDK, so
+     * it has to be reached reflectively; failing is harmless, we just keep the stale cache.
+     */
+    private fun refreshCache(g: BluetoothGatt) {
+        try {
+            val ok = g.javaClass.getMethod("refresh").invoke(g) as? Boolean
+            Log.d(TAG, "gatt cache refresh=$ok")
+        } catch (e: Throwable) {
+            Log.w(TAG, "gatt cache refresh unavailable: ${e.message}")
+        }
+    }
+
     /** Reassemble the 4-byte big-endian length + JSON stream. */
     private fun accept(chunk: ByteArray) {
+        if (!subscribed) {
+            subscribed = true
+            handler.removeCallbacks(subscribeRetry)
+            Log.d(TAG, "SUBSCRIBED CONFIRMED: data flowing from phone")
+        }
+        Log.d(TAG, "rx ${chunk.size} bytes")
         var buf = inbound
         if (buf == null) {
             if (chunk.size < 4) return
@@ -153,6 +304,7 @@ class BleCentral(private val context: Context) {
             try {
                 val o = org.json.JSONObject(json)
                 onMessage?.invoke(o.optString("type"), o.optJSONObject("data") ?: org.json.JSONObject())
+                Log.d(TAG, "message complete: ${json.length} chars")
             } catch (e: Exception) { Log.w(TAG, "bad json: ${e.message}") }
         }
     }
@@ -160,5 +312,14 @@ class BleCentral(private val context: Context) {
     companion object {
         private const val TAG = "BleCentral"
         private const val MAX_MESSAGE = 256 * 1024
+        private const val RESCAN_MS = 25_000L
+        private const val FIRST_SUBSCRIBE_DELAY_MS = 700L
+        private const val SUBSCRIBE_RETRY_MS = 2_000L
+        private const val MAX_SUBSCRIBE_ATTEMPTS = 8
+        private const val REFRESH_SETTLE_MS = 700L
+        private const val DISCOVERY_RETRY_MS = 2_500L
+        private const val MAX_DISCOVERY_ATTEMPTS = 4
+        /** CBAdvertisementDataLocalNameKey set by the iPhone companion app. */
+        private const val ADV_NAME = "HUD"
     }
 }

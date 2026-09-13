@@ -26,6 +26,8 @@ final class BLEClient: NSObject, ObservableObject {
     private var notifyChar: CBMutableCharacteristic!
     private var queue: [Data] = []
     private var subscribedCentral: CBCentral?
+    /// Guards against publishing the service more than once (see startAdvertising).
+    private var servicePublished = false
 
     /// Bytes that actually fit in one notification for the connected central. Hardcoding this
     /// silently truncates when the negotiated MTU is smaller than assumed.
@@ -37,8 +39,18 @@ final class BLEClient: NSObject, ObservableObject {
     }
 
     /// Publish the service and start advertising so the glasses can find us.
+    ///
+    /// Called from more than one place (state changes, the UI), so it must be idempotent. Without
+    /// the guard the service gets published twice and the glasses' GATT database ends up with two
+    /// instances of it; a central that picks the orphaned one subscribes successfully and then
+    /// receives nothing, because `updateValue` only reaches subscribers of the live instance.
     func startAdvertising() {
         guard manager.state == .poweredOn else { return }
+        guard !servicePublished else {
+            if !manager.isAdvertising { beginAdvertising() }
+            return
+        }
+        manager.stopAdvertising()
         manager.removeAllServices()
         // Reference implementation uses empty permissions for a notify-only characteristic;
         // [.readable] here can stop iOS reporting the central's subscribe.
@@ -53,11 +65,14 @@ final class BLEClient: NSObject, ObservableObject {
     }
 
     /// Send one JSON message: 4-byte big-endian length + UTF-8, chunked to the negotiated MTU.
-    func send(type: String, data: [String: Any]) {
-        guard let ch = notifyChar else { state = .error("service not published"); return }
-        _ = ch
+    @discardableResult
+    func send(type: String, data: [String: Any]) -> Bool {
+        guard notifyChar != nil else { state = .error("service not published"); return false }
+        // Without a subscriber updateValue has nobody to deliver to and silently discards the
+        // payload, so reporting success here would be a lie the UI then shows to the user.
+        guard subscribedCentral != nil else { state = .error("glasses not subscribed"); return false }
         let payload: [String: Any] = ["type": type, "data": data]
-        guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        guard let json = try? JSONSerialization.data(withJSONObject: payload) else { return false }
         var framed = Data()
         var len = UInt32(json.count).bigEndian
         withUnsafeBytes(of: &len) { framed.append(contentsOf: $0) }
@@ -72,6 +87,14 @@ final class BLEClient: NSObject, ObservableObject {
             offset = end
         }
         flush()
+        return true
+    }
+
+    private func beginAdvertising() {
+        manager.startAdvertising([
+            CBAdvertisementDataServiceUUIDsKey: [hudService],
+            CBAdvertisementDataLocalNameKey: "HUD",
+        ])
     }
 
     private func flush() {
@@ -87,7 +110,7 @@ extension BLEClient: CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ p: CBPeripheralManager) {
         switch p.state {
         case .poweredOn: startAdvertising()
-        case .poweredOff: state = .off
+        case .poweredOff: servicePublished = false; state = .off
         default: state = .error("bluetooth \(p.state.rawValue)")
         }
     }
@@ -114,10 +137,8 @@ extension BLEClient: CBPeripheralManagerDelegate {
             state = .error("publish failed: \(error.localizedDescription)")
             return
         }
-        p.startAdvertising([
-            CBAdvertisementDataServiceUUIDsKey: [hudService],
-            CBAdvertisementDataLocalNameKey: "HUD",
-        ])
+        servicePublished = true
+        beginAdvertising()
         // confirm the radio actually started, rather than assuming
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self else { return }
