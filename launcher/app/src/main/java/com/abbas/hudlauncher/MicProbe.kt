@@ -22,6 +22,10 @@ object MicProbe {
 
         var bytes = 0L
         var peak = 0
+        val samples = java.util.concurrent.atomic.AtomicLong(0)
+        val nonZero = java.util.concurrent.atomic.AtomicLong(0)
+        val sumSq = java.util.concurrent.atomic.AtomicReference(0.0)
+        fun addSq(v: Double) { sumSq.set(sumSq.get() + v) }
         val t0 = System.currentTimeMillis()
         val started = MicCapture.start(
             ctx,
@@ -32,16 +36,25 @@ object MicProbe {
                     val v = kotlin.math.abs(
                         ((buf[k + 1].toInt() shl 8) or (buf[k].toInt() and 0xFF)).toShort().toInt())
                     if (v > peak) peak = v
+                    samples.incrementAndGet()
+                    if (v != 0) nonZero.incrementAndGet()
+                    addSq(v.toDouble() * v)
                     k += 2
                 }
             },
             onStop = { why ->
                 val secs = (System.currentTimeMillis() - t0) / 1000.0
                 val hz = if (secs > 0) (bytes / 2 / secs).toInt() else 0
-                Log.d(TAG, "RESULT ($why): ${bytes}B in ${"%.2f".format(secs)}s = $hz Hz, peak=$peak")
+                val n = samples.get()
+                val rms = if (n > 0) kotlin.math.sqrt(sumSq.get() / n) else 0.0
+                val pctNz = if (n > 0) 100.0 * nonZero.get() / n else 0.0
+                Log.d(TAG, "RESULT ($why): ${bytes}B in ${"%.2f".format(secs)}s = $hz Hz")
+                Log.d(TAG, "LEVEL peak=$peak rms=${"%.1f".format(rms)} nonzero=${"%.1f".format(pctNz)}% " +
+                           "peak_dBFS=${"%.1f".format(20 * kotlin.math.log10((peak.coerceAtLeast(1)).toDouble() / 32767.0))}")
             },
         )
         if (!started) { Log.w(TAG, "capture did not start"); return }
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ MicCapture.stop() }, 5_000)
+        Log.d(TAG, "TALK NOW - capturing 10s")
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ MicCapture.stop() }, 10_000)
     }
 }

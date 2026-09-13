@@ -79,6 +79,7 @@ class BleCentral(private val context: Context) {
      */
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val rescan = Runnable { restartScan() }
+    private val endWindow = Runnable { endScanWindow() }
     private var subscribeAttempts = 0
     private var discoveryAttempts = 0
     private val subscribeRetry = Runnable { gatt?.let { trySubscribe(it) } }
@@ -97,30 +98,48 @@ class BleCentral(private val context: Context) {
                 ScanFilter.Builder().setServiceUuid(ParcelUuid(BleServer.SERVICE)).build(),
                 ScanFilter.Builder().setDeviceName(ADV_NAME).build(),
             )
-            val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+            // LOW_POWER, not LOW_LATENCY. The latter is a continuous 100% duty-cycle scan and was
+            // measured at 1h48m of unbroken "unoptimized" scan time overnight, finding nothing.
+            val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_POWER).build()
             scanner.startScan(filters, settings, callback)
             scanning = true
-            Log.d(TAG, "scanning for companion app")
+            Log.d(TAG, "scanning for companion app (${SCAN_WINDOW_MS / 1000}s window)")
             tryDirectReconnect()
+
+            // Scan in a bounded WINDOW and then genuinely stop, so the radio idles in between.
+            // The previous backoff only changed how often the scan was restarted; it never stopped,
+            // so the duty cycle stayed at 100% and the battery saving it claimed did not exist.
+            //
+            // Long gaps are safe because autoConnect, armed above, is what actually restores the
+            // link while the phone keeps its address, and it is handled by the controller for
+            // almost no power. Scanning only matters after iOS rotates its private address, which
+            // happens on the order of every 15 minutes.
+            handler.removeCallbacks(endWindow)
             handler.removeCallbacks(rescan)
-            // A phone that is off, out of range or backgrounded can stay unreachable for hours.
-            // Scanning every 25s for all of it is the most expensive thing this app can do, so ease
-            // off as misses accumulate, up to a cap that still reconnects promptly once it returns.
-            val delay = (RESCAN_MS shl minOf(missedScans, RESCAN_BACKOFF_STEPS))
+            handler.postDelayed(endWindow, SCAN_WINDOW_MS)
+            val idle = (RESCAN_MS shl minOf(missedScans, RESCAN_BACKOFF_STEPS))
                 .coerceAtMost(RESCAN_MAX_MS)
-            handler.postDelayed(rescan, delay)
+            handler.postDelayed(rescan, SCAN_WINDOW_MS + idle)
         } catch (e: Throwable) {
             Log.w(TAG, "scan failed: ${e.message}")
         }
+    }
+
+    /** End the scan window: stop the radio and leave autoConnect armed until the next window. */
+    @SuppressLint("MissingPermission")
+    private fun endScanWindow() {
+        if (!scanning || connected) return
+        try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
+        scanning = false
+        Log.d(TAG, "scan window closed; radio idle until next window")
     }
 
     /** Bounce the scan so a throttled or silently-dead scanner recovers on its own. */
     private fun restartScan() {
         if (connected) return                          // link is up; nothing to look for
         missedScans++
-        Log.d(TAG, "no companion yet; restarting scan (miss #$missedScans)")
-        try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
-        scanning = false
+        Log.d(TAG, "no companion yet; new scan window (miss #$missedScans)")
+        endScanWindow()
         seen.clear()
         startScan()
     }
@@ -128,6 +147,7 @@ class BleCentral(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun stopScan() {
         handler.removeCallbacks(rescan)
+        handler.removeCallbacks(endWindow)
         try { manager.adapter?.bluetoothLeScanner?.stopScan(callback) } catch (_: Exception) {}
         scanning = false
     }
@@ -486,7 +506,9 @@ class BleCentral(private val context: Context) {
         private const val MAX_MESSAGE = 256 * 1024
         /** Fits inside the negotiated 185-byte MTU with ATT overhead. */
         private const val CHUNK = 180
-        private const val RESCAN_MS = 25_000L
+        private const val RESCAN_MS = 30_000L
+        /** How long the radio actually scans before idling again. */
+        private const val SCAN_WINDOW_MS = 8_000L
         private const val RESCAN_MAX_MS = 5 * 60_000L
         private const val RESCAN_BACKOFF_STEPS = 4
         private const val FIRST_SUBSCRIBE_DELAY_MS = 700L
