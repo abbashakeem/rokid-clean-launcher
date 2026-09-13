@@ -56,6 +56,8 @@ class BleCentral(private val context: Context) {
     private var connected = false
     /** How many copies of the service the peripheral exposed on this connection. */
     private var instanceCount = 0
+    private var bondReceiver: android.content.BroadcastReceiver? = null
+    private var bondWaitStarted = 0L
     /**
      * One-shot guards. iOS peripherals emit a Service Changed indication shortly after connecting,
      * so `onServicesDiscovered` fires twice; the second CCCD write collides with the first still in
@@ -122,6 +124,8 @@ class BleCentral(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
+        bondReceiver?.let { try { context.unregisterReceiver(it) } catch (_: Exception) {} }
+        bondReceiver = null
         try { gatt?.disconnect(); gatt?.close() } catch (_: Exception) {}
         gatt = null
     }
@@ -189,10 +193,12 @@ class BleCentral(private val context: Context) {
                 connected = true
                 lastAddress = g.device.address
                 stopScan()
+                maybeBond(g)
                 // 512 is rejected by some peripherals; 185 is iOS's own ceiling and is known-good
                 // on this firmware (RokidKeyboard uses it). Fall straight through if the request
                 // cannot even be queued, otherwise discovery would never start.
                 if (!g.requestMtu(185)) startDiscovery(g)
+                return
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.d(TAG, "companion disconnected")
                 inbound = null
@@ -305,9 +311,65 @@ class BleCentral(private val context: Context) {
         }
     }
 
+    /**
+     * Pair with the phone so the link can be re-established after it rotates its address.
+     *
+     * iPhones advertise and connect under a resolvable private address that changes periodically.
+     * Unbonded, the glasses only know the address they last saw, so an autoConnect armed against it
+     * aims at an address that no longer exists once it rotates - and the scan fallback cannot see a
+     * backgrounded app. Bonding hands the glasses the phone's identity key, letting the controller
+     * resolve the rotating address and reconnect on its own.
+     *
+     * Entirely best-effort. If the user declines the pairing prompt or the stack refuses, the link
+     * still works exactly as before, just without rotation recovery.
+     */
+    @SuppressLint("MissingPermission")
+    private fun maybeBond(g: BluetoothGatt) {
+        val device = g.device
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            Log.d(TAG, "already bonded")
+            return
+        }
+        registerBondReceiver()
+        bondWaitStarted = System.currentTimeMillis()
+        val started = try { device.createBond() } catch (e: Throwable) {
+            Log.w(TAG, "createBond threw: ${e.message}"); false
+        }
+        Log.d(TAG, "bond requested: started=$started (state=${device.bondState})")
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun registerBondReceiver() {
+        if (bondReceiver != null) return
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                val state = intent?.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1) ?: -1
+                val name = when (state) {
+                    BluetoothDevice.BOND_BONDING -> "BONDING"
+                    BluetoothDevice.BOND_BONDED -> "BONDED"
+                    BluetoothDevice.BOND_NONE -> "NONE"
+                    else -> "state=$state"
+                }
+                Log.d(TAG, "bond state -> $name")
+            }
+        }
+        try {
+            context.registerReceiver(
+                r, android.content.IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+            bondReceiver = r
+        } catch (e: Throwable) { Log.w(TAG, "bond receiver failed: ${e.message}") }
+    }
+
     @SuppressLint("MissingPermission")
     private fun startDiscovery(g: BluetoothGatt) {
         if (discoveryStarted) return
+        // Discovering while pairing is in flight can disturb it, so give the bond a short window to
+        // finish first. Bounded, because a declined or unsupported bond must not stall the link.
+        if (g.device.bondState == BluetoothDevice.BOND_BONDING &&
+            System.currentTimeMillis() - bondWaitStarted < BOND_WAIT_MS) {
+            handler.postDelayed({ startDiscovery(g) }, 500)
+            return
+        }
         discoveryStarted = true
         refreshCache(g)
         // refresh() clears the cache asynchronously; discovering immediately after races it and the
@@ -385,6 +447,7 @@ class BleCentral(private val context: Context) {
         private const val DISCOVERY_RETRY_MS = 2_500L
         private const val MAX_DISCOVERY_ATTEMPTS = 4
         private const val KEY_ADDRESS = "ble_last_address"
+        private const val BOND_WAIT_MS = 12_000L
         /** CBAdvertisementDataLocalNameKey set by the iPhone companion app. */
         private const val ADV_NAME = "HUD"
     }
