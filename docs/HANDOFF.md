@@ -94,7 +94,10 @@ arrive intact; phone-side counter agrees with the glasses.
   answer is retried on the cloud if it contains the `ESCALATE` sentinel the prompt asks for, or
   one of the no-access phrases in `Escalation.admissions`. Any Apple failure at either step also
   falls through to the cloud. Which route answered is shown in chat and in the voice status.
-  Built clean; **not yet exercised on the phone** — the triage boundary needs real questions.
+  Verified on the phone 2026-09-14: calendar question answered by Apple, Sydney weather routed
+  to Gemini with a live reading. "Is the pharmacy open?" was triaged local and Apple answered
+  with the literal "ESCALE" - the sentinel with letters dropped - so the sentinel match is now
+  tolerant (short reply starting "ESCAL"). Expect the small model to mangle fixed tokens.
 
 **Camera**
 - Our app **can** open camera 0 despite Rokid's assistserver existing. 9,989-byte JPEG captured.

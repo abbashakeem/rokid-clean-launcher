@@ -751,8 +751,13 @@ enum Escalation {
         "i cannot look up", "i can't look up", "unable to look up", "cannot check", "can't check",
     ]
 
+    /// Tolerant on purpose. On the first device test the model answered "ESCALE" - the
+    /// sentinel with letters dropped - and an exact match let it through to the screen. A short
+    /// reply that starts with "ESCAL" is the sentinel, however it was spelled.
     static func reason(in reply: String) -> String? {
-        if reply.uppercased().contains(sentinel) { return "said " + sentinel }
+        let letters = reply.uppercased().filter { $0.isLetter }
+        if letters.contains(sentinel) { return "said " + sentinel }
+        if letters.count <= 12, letters.hasPrefix("ESCAL") { return "said \(reply.prefix(12)) (sentinel misspelled)" }
         let lower = reply.lowercased()
         return admissions.first { lower.contains($0) }.map { "said \"\($0)\"" }
     }
