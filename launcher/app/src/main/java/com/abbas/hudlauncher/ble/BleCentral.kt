@@ -56,6 +56,13 @@ class BleCentral(private val context: Context) {
     private var connected = false
     /** Phone-ward characteristic, resolved at discovery; null until the link is up. */
     private var writeCh: BluetoothGattCharacteristic? = null
+    /**
+     * Pending write chunks. Android permits exactly ONE outstanding GATT operation: issuing the
+     * next write before onCharacteristicWrite fires is rejected outright, which is why every chunk
+     * after the first was failing. Writes are queued here and pumped one at a time.
+     */
+    private val writeQueue = ArrayDeque<ByteArray>()
+    private var writing = false
     /** How many copies of the service the peripheral exposed on this connection. */
     private var instanceCount = 0
     private var bondReceiver: android.content.BroadcastReceiver? = null
@@ -235,6 +242,7 @@ class BleCentral(private val context: Context) {
                 inbound = null
                 connected = false
                 writeCh = null
+                synchronized(writeQueue) { writeQueue.clear(); writing = false }
                 instanceCount = 0
                 discoveryStarted = false
                 subscribed = false
@@ -265,12 +273,28 @@ class BleCentral(private val context: Context) {
                         .format(ch.properties, ch.descriptors.map { it.uuid }))
                 }
             }
+            // Resolve the phone-ward characteristic on EVERY discovery pass, before the guard
+            // below: a Service Changed re-discovery returns early, and resolving after that point
+            // would leave the handle null for the whole connection.
+            val ours = g.services.filter { it.uuid == BleServer.SERVICE }
+            writeCh = ours.firstNotNullOfOrNull { it.getCharacteristic(BleServer.CHAR_WRITE) }
+            Log.d(TAG, "write char: instances=${ours.size} resolved=${writeCh != null}" +
+                       (writeCh?.let { " props=0x%02x".format(it.properties) } ?: ""))
+
             if (subscribeAttempts > 0) return    // Service Changed re-discovery; already under way
             // A CCCD write issued in this callback is routinely dropped: the stack is still settling
             // the connection (a second MTU callback arrives after it) and the write never completes,
             // so the phone never registers a subscriber and its notifications go nowhere. Delay the
             // first attempt, then retry until onDescriptorWrite actually confirms.
             handler.postDelayed({ trySubscribe(g) }, FIRST_SUBSCRIBE_DELAY_MS)
+        }
+
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int,
+        ) {
+            synchronized(writeQueue) { writing = false }
+            if (status != BluetoothGatt.GATT_SUCCESS) Log.w(TAG, "write status=$status")
+            pump(g, ch)
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
@@ -454,21 +478,42 @@ class BleCentral(private val context: Context) {
             val framed = ByteBuffer.allocate(4 + json.size).order(ByteOrder.BIG_ENDIAN)
                 .putInt(json.size).put(json).array()
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            var off = 0
-            while (off < framed.size) {
-                val end = minOf(off + CHUNK, framed.size)
-                val part = framed.copyOfRange(off, end)
-                val ok = if (android.os.Build.VERSION.SDK_INT >= 33) {
-                    g.writeCharacteristic(ch, part, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ==
-                        BluetoothGatt.GATT_SUCCESS
-                } else {
-                    @Suppress("DEPRECATION") run { ch.value = part; g.writeCharacteristic(ch) }
+            synchronized(writeQueue) {
+                var off = 0
+                while (off < framed.size) {
+                    val end = minOf(off + CHUNK, framed.size)
+                    writeQueue.addLast(framed.copyOfRange(off, end))
+                    off = end
                 }
-                if (!ok) { Log.w(TAG, "write failed at offset $off"); return false }
-                off = end
+                // Live audio: a stalled link must not grow memory, and stale speech is worthless,
+                // so drop the oldest rather than buffer without bound.
+                while (writeQueue.size > MAX_QUEUED_CHUNKS) writeQueue.removeFirst()
             }
+            pump(g, ch)
             true
         } catch (e: Throwable) { Log.w(TAG, "send failed: ${e.message}"); false }
+    }
+
+    /** Issue the next queued chunk, if the stack is idle. Re-entered from onCharacteristicWrite. */
+    @SuppressLint("MissingPermission")
+    private fun pump(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+        val next = synchronized(writeQueue) {
+            if (writing || writeQueue.isEmpty()) return
+            writing = true
+            writeQueue.removeFirst()
+        }
+        val ok = try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                g.writeCharacteristic(ch, next, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ==
+                    BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION") run { ch.value = next; g.writeCharacteristic(ch) }
+            }
+        } catch (t: Throwable) { Log.w(TAG, "write threw: ${t.message}"); false }
+        if (!ok) {
+            synchronized(writeQueue) { writing = false }
+            Log.w(TAG, "write rejected; ${writeQueue.size} chunks still queued")
+        }
     }
 
     /** Reassemble the 4-byte big-endian length + JSON stream. */
@@ -506,6 +551,8 @@ class BleCentral(private val context: Context) {
         private const val MAX_MESSAGE = 256 * 1024
         /** Fits inside the negotiated 185-byte MTU with ATT overhead. */
         private const val CHUNK = 180
+        /** ~36KB ceiling on buffered audio before the oldest is dropped. */
+        private const val MAX_QUEUED_CHUNKS = 200
         private const val RESCAN_MS = 30_000L
         /** How long the radio actually scans before idling again. */
         private const val SCAN_WINDOW_MS = 8_000L

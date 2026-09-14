@@ -18,7 +18,7 @@ import com.abbas.hudlauncher.R
  */
 class BleScanService : Service() {
 
-    private var central: BleCentral? = null
+
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +55,12 @@ class BleScanService : Service() {
         private const val TAG = "BleScanService"
         private const val CHANNEL = "hud_phone_link"
         private const val NOTIF_ID = 9
+
+        /** Send a message to the phone over the live link; false when no link is up. */
+        fun sendToPhone(type: String, data: org.json.JSONObject): Boolean =
+            central?.send(type, data) ?: false
+
+        @Volatile private var central: BleCentral? = null
 
         /** Set by the app before starting, so decoded messages reach the launcher. */
         @Volatile var onMessage: ((type: String, data: org.json.JSONObject) -> Unit)? = null
