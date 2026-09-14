@@ -41,8 +41,11 @@ class AssistantTurn(BaseModel):
 
 class AssistantRequest(BaseModel):
     messages: list[AssistantTurn] = Field(min_length=1, max_length=40)
+    # Omit to use the server default; the phone can override per request.
+    provider: str | None = Field(default=None, pattern="^(anthropic|gemini)$")
 
 
 class AssistantResponse(BaseModel):
     reply: str
     model: str
+    provider: str

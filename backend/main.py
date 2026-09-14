@@ -219,44 +219,84 @@ load();
 </script></body></html>"""
 
 
-@app.post("/assistant", response_model=AssistantResponse, dependencies=[Depends(verify_key)])
-async def assistant(req: AssistantRequest) -> AssistantResponse:
-    """
-    Answer a transcribed question, holding the Anthropic key server-side.
-
-    Stateless on purpose: the phone sends the whole conversation each time, so a restart here
-    loses nothing and this service never becomes a session store. Speech-to-text happens on the
-    phone (Apple's on-device recogniser), so only text crosses the network.
-    """
+async def _call_anthropic(req: AssistantRequest) -> tuple[str, str]:
     if not settings.anthropic_api_key:
         raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "assistant not configured: set ANTHROPIC_API_KEY",
-        )
+            status.HTTP_503_SERVICE_UNAVAILABLE, "anthropic not configured: set ANTHROPIC_API_KEY")
     payload = {
         "model": settings.anthropic_model,
         "max_tokens": settings.assistant_max_tokens,
         "system": settings.assistant_system,
         "messages": [{"role": t.role, "content": t.content} for t in req.messages],
     }
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": settings.anthropic_api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"upstream unreachable: {exc}") from exc
-
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": settings.anthropic_api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json=payload,
+        )
     if r.status_code != 200:
-        # Surface the real reason (bad key, rate limit, unknown model) rather than a blank 502.
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"anthropic {r.status_code}: {r.text[:300]}")
-
     body = r.json()
     text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
-    return AssistantResponse(reply=text.strip(), model=body.get("model", settings.anthropic_model))
+    return text.strip(), body.get("model", settings.anthropic_model)
+
+
+async def _call_gemini(req: AssistantRequest) -> tuple[str, str]:
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "gemini not configured: set GEMINI_API_KEY")
+    # Gemini names the assistant role "model", not "assistant", and carries the system prompt
+    # in a separate systemInstruction field rather than inline.
+    contents = [
+        {"role": ("model" if t.role == "assistant" else "user"), "parts": [{"text": t.content}]}
+        for t in req.messages
+    ]
+    payload = {
+        "contents": contents,
+        "systemInstruction": {"parts": [{"text": settings.assistant_system}]},
+        "generationConfig": {"maxOutputTokens": settings.assistant_max_tokens},
+    }
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{settings.gemini_model}:generateContent"
+    )
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(
+            url,
+            headers={"x-goog-api-key": settings.gemini_api_key, "content-type": "application/json"},
+            json=payload,
+        )
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"gemini {r.status_code}: {r.text[:300]}")
+    body = r.json()
+    parts = (body.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts)
+    return text.strip(), settings.gemini_model
+
+
+@app.post("/assistant", response_model=AssistantResponse, dependencies=[Depends(verify_key)])
+async def assistant(req: AssistantRequest) -> AssistantResponse:
+    """
+    Answer a transcribed question, holding the provider key server-side.
+
+    Stateless on purpose: the phone sends the whole conversation each time, so a restart here
+    loses nothing and this service never becomes a session store. Speech-to-text happens on the
+    phone (Apple's on-device recogniser), so only text crosses the network.
+
+    Provider is the server default unless the request overrides it, so the phone can offer a
+    choice without a redeploy.
+    """
+    provider = req.provider or settings.assistant_provider
+    try:
+        if provider == "gemini":
+            reply, model = await _call_gemini(req)
+        else:
+            reply, model = await _call_anthropic(req)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"upstream unreachable: {exc}") from exc
+    return AssistantResponse(reply=reply, model=model, provider=provider)

@@ -20,8 +20,11 @@ class Settings(BaseSettings):
 
     # Assistant. The key lives here, never on the phone, so it can be rotated in one place
     # and a lost device does not leak it.
+    assistant_provider: str = "anthropic"        # anthropic | gemini (per-request override allowed)
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
     assistant_max_tokens: int = 512
     assistant_system: str = (
         "You are a voice assistant on smart glasses. Replies are read on a tiny "
