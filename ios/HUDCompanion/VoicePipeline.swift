@@ -26,6 +26,8 @@ final class VoicePipeline: ObservableObject {
 
     /// Phone-owned remembered facts, sent with each question and captured from "remember ...".
     var memory: MemoryStore?
+    /// Shared with the chat screen so spoken and typed questions form one conversation.
+    var conversation: Conversation?
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -81,7 +83,18 @@ final class VoicePipeline: ObservableObject {
 
         status = "thinking"
         phase = .thinking
-        Task { await ask(text) }
+        // Route through the shared conversation when available, so history and the chat screen
+        // stay in step; fall back to the standalone call if it has not been wired.
+        if let conversation {
+            Task {
+                await conversation.send(text, facts: memory?.facts ?? [])
+                reply = conversation.turns.last?.text ?? ""
+                status = conversation.error.isEmpty ? "answered" : conversation.error
+                phase = conversation.error.isEmpty ? .answered : .failed
+            }
+        } else {
+            Task { await ask(text) }
+        }
     }
 
     // MARK: Opus -> PCM

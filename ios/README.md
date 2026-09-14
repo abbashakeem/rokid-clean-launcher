@@ -105,3 +105,25 @@ match. Tidying properly means re-adding from one location in Xcode and deleting 
 store that exposes `delete(at offsets: IndexSet)` for `.onDelete` must `import SwiftUI` even though
 it contains no views, or the build fails with "not available due to missing import of defining
 module 'SwiftUI'".
+
+
+## Missing imports for symbols that feel ambient
+
+Two build failures in a row from the same wrong assumption, both in files containing no obvious
+dependency on the module in question:
+
+- `MemoryStore.swift` needs `import SwiftUI` because `remove(atOffsets:)` is a SwiftUI extension
+  on `RangeReplaceableCollection`, not Foundation - even though the file declares no views.
+- `ContentView.swift` needs `import Combine` because `@Published` and `ObservableObject`
+  conformance come from Combine, not SwiftUI. Appending an observable class to a SwiftUI-only file
+  fails with "does not conform to protocol 'ObservableObject'".
+
+Both surface as `#MemberImportVisibility` errors. When adding a class or calling an unfamiliar
+collection method, check the defining module rather than assuming SwiftUI or Foundation covers it.
+
+## Why the chat UI lives in ContentView.swift
+
+`Conversation` and `ChatView` were appended to `ContentView.swift` rather than given their own
+file. New files must be added to the Xcode target by hand and have twice produced duplicate-name
+copies (`MemoryStore 2.swift`), so keeping additions inside a file already in the target avoids
+both problems. The trade-off is a longer ContentView.

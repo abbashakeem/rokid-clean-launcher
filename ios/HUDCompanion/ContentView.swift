@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import EventKit
 
@@ -5,6 +6,7 @@ struct ContentView: View {
     @StateObject private var ble = BLEClient()
     @StateObject private var voice = VoicePipeline()
     @StateObject private var memory = MemoryStore()
+    @StateObject private var chat = Conversation()
     @StateObject private var cal = CalendarSync()
     @State private var lastPush = ""
     /// Epoch seconds of the last automatic push; manual pushes ignore the throttle.
@@ -102,6 +104,16 @@ struct ContentView: View {
                         .onDelete { memory.delete(at: $0) }
                     }
                 } header: { Text("Remembered") }
+                Section {
+                    NavigationLink {
+                        ChatView(chat: chat, memory: memory)
+                    } label: {
+                        Label("Assistant chat", systemImage: "bubble.left.and.text.bubble.right")
+                    }
+                    if let last = chat.turns.last {
+                        Text(last.text).font(.caption).foregroundColor(.secondary).lineLimit(2)
+                    }
+                } header: { Text("Assistant") }
             }
             .navigationTitle("HUD Companion")
             .onAppear {
@@ -109,6 +121,7 @@ struct ContentView: View {
                 ble.onReady = { autoPush() }
                 VoicePipeline.requestPermission()
                 voice.memory = memory
+                voice.conversation = chat
                 ble.onAudioStart = { voice.begin() }
                 ble.onAudioFrames = { frames in for f in frames { voice.feed(opus: f) } }
                 ble.onAudioEnd = { voice.end() }
@@ -151,5 +164,143 @@ struct ContentView: View {
         case .connected: return "Connected"
         case .error(let m): return m
         }
+    }
+}
+
+
+// MARK: - Assistant conversation
+
+/// One exchange in the conversation. Kept deliberately simple: the backend is stateless and
+/// receives the whole history each time, so this is the only place dialogue lives.
+struct Turn: Identifiable, Equatable {
+    enum Role: String { case user, assistant }
+    let id = UUID()
+    let role: Role
+    let text: String
+}
+
+/// Talks to /assistant and keeps the history.
+///
+/// Shared by the chat screen and the voice pipeline so both contribute to one conversation. This
+/// also supplies the "conversation memory" layer: the backend stays stateless and we send the
+/// recent turns with every request.
+@MainActor
+final class Conversation: ObservableObject {
+    @Published var turns: [Turn] = []
+    @Published var busy = false
+    @Published var error = ""
+
+    /// How many past turns travel with each request. Enough for context, bounded so a long
+    /// session does not grow the prompt without limit.
+    private let historyLimit = 20
+
+    func send(_ text: String, facts: [String]) async {
+        let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, !busy else { return }
+        turns.append(Turn(role: .user, text: question))
+        busy = true
+        error = ""
+        defer { busy = false }
+
+        guard let url = URL(string: Secrets.backendBaseURL + "/assistant") else {
+            error = "bad backend URL"; return
+        }
+        var r = URLRequest(url: url)
+        r.httpMethod = "POST"
+        r.setValue(Secrets.backendAPIKey, forHTTPHeaderField: "X-API-KEY")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.timeoutInterval = 60
+        let history = turns.suffix(historyLimit).map { ["role": $0.role.rawValue, "content": $0.text] }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["messages": history, "facts": facts])
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: r)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else {
+                error = "backend \(code): \(String(data: data, encoding: .utf8)?.prefix(160) ?? "")"
+                return
+            }
+            let o = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let reply = (o?["reply"] as? String) ?? ""
+            if reply.isEmpty { error = "empty reply" } else {
+                turns.append(Turn(role: .assistant, text: reply))
+            }
+        } catch {
+            self.error = "unreachable: \(error.localizedDescription)"
+        }
+    }
+
+    func clear() { turns.removeAll(); error = "" }
+}
+
+/// Text chat with the assistant. Decouples testing from the glasses and the microphone, and gives
+/// the wearer a way to type when speaking is impractical or to read back what was said.
+struct ChatView: View {
+    @ObservedObject var chat: Conversation
+    @ObservedObject var memory: MemoryStore
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(chat.turns) { turn in
+                            HStack {
+                                if turn.role == .assistant { bubble(turn); Spacer(minLength: 40) }
+                                else { Spacer(minLength: 40); bubble(turn) }
+                            }
+                            .id(turn.id)
+                        }
+                        if chat.busy {
+                            HStack { ProgressView(); Text("Thinking").foregroundColor(.secondary) }
+                        }
+                        if !chat.error.isEmpty {
+                            Text(chat.error).font(.caption).foregroundColor(.red)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: chat.turns.count) {
+                    if let last = chat.turns.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                }
+            }
+            Divider()
+            HStack(spacing: 8) {
+                TextField("Ask the assistant", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                    .onSubmit(submit)
+                Button(action: submit) {
+                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+                }
+                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || chat.busy)
+            }
+            .padding()
+        }
+        .navigationTitle("Assistant")
+        .toolbar {
+            Button("Clear") { chat.clear() }.disabled(chat.turns.isEmpty)
+        }
+    }
+
+    private func bubble(_ turn: Turn) -> some View {
+        Text(turn.text)
+            .padding(10)
+            .background(turn.role == .user ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// "remember that ..." is handled on the phone: instant, free, no model call - the same path
+    /// the voice route uses, so typing and speaking behave identically.
+    private func submit() {
+        let text = draft
+        draft = ""
+        if let confirmation = memory.capture(from: text) {
+            chat.turns.append(Turn(role: .user, text: text))
+            chat.turns.append(Turn(role: .assistant, text: confirmation))
+            return
+        }
+        Task { await chat.send(text, facts: memory.facts) }
     }
 }
