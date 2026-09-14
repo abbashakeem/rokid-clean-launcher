@@ -54,3 +54,30 @@ Times are epoch milliseconds. Adding new message types (a note, a nav destinatio
 - Share extension so "Share → HUD" from Google/Apple Maps pushes a destination.
 - Custom notes/reminders to the Messages panel.
 - Auto-push on calendar change and on connect, instead of a manual button.
+
+
+## Careful: two copies of the newer Swift files
+
+When VoicePipeline.swift and Secrets.swift were added to the Xcode target they landed at the
+project ROOT (`~/Documents/HUDCompanion/`), not inside `HUDCompanion/` where the older sources
+live. The project references them by bare `path = VoicePipeline.swift;`, so **Xcode builds the root
+copy**.
+
+Both copies currently exist and are identical, which is a trap: editing the wrong one produces a
+"fix" that changes nothing and still builds. When editing either file, write the root copy and sync:
+
+```
+cp ~/Documents/HUDCompanion/VoicePipeline.swift ~/Documents/HUDCompanion/HUDCompanion/
+cp ~/Documents/HUDCompanion/VoicePipeline.swift <repo>/ios/HUDCompanion/
+```
+
+Tidying this properly means re-adding the files from `HUDCompanion/` in Xcode and deleting the root
+copies.
+
+## Actor isolation and CoreAudio callbacks
+
+`VoicePipeline` is `@MainActor`, which infers global-actor isolation onto top-level declarations in
+the same file. An actor-isolated function cannot be converted to a C function pointer, so
+`AudioConverterFillComplexBuffer`'s callback, its context struct and the sentinel constant are all
+marked `private nonisolated`. Without that the build fails with "a C function pointer can only be
+formed from a reference to a 'func' or a literal closure".

@@ -155,15 +155,15 @@ final class VoicePipeline: ObservableObject {
 }
 
 /// Hands a single Opus packet to the converter exactly once.
-private struct DecodeContext {
+private nonisolated struct DecodeContext {
     let bytes: UnsafeMutableRawPointer?
     let count: Int
     let desc: UnsafeMutablePointer<AudioStreamPacketDescription>
     var consumed: Bool
 }
 
-private let kNoMoreDataErr: OSStatus = -1
-private func decodeCallback(
+private nonisolated let kNoMoreDataErr: OSStatus = -1
+private nonisolated func decodeCallback(
     _ conv: AudioConverterRef,
     _ numberPackets: UnsafeMutablePointer<UInt32>,
     _ ioData: UnsafeMutablePointer<AudioBufferList>,

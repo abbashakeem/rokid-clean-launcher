@@ -24,7 +24,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    # Google retired 2.5-flash for new users and its 404 names the successor; keep this current
+    # rather than trusting a remembered model id. Overridable via GEMINI_MODEL.
+    gemini_model: str = "gemini-3.6-flash"
     assistant_max_tokens: int = 512
     assistant_system: str = (
         "You are a voice assistant on smart glasses. Replies are read on a tiny "
