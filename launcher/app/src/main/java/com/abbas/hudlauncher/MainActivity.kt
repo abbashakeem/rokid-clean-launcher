@@ -47,6 +47,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var agendaView: LinearLayout
     private lateinit var barView: View
     private lateinit var btnMessages: ImageButton
+    /// Warns that display-off is unavailable, rather than the glasses silently never sleeping.
+    private lateinit var lockWarning: ImageView
     private lateinit var btnBrightness: ImageButton
     private lateinit var phoneLink: ImageView
     private lateinit var btnHome: ImageButton
@@ -154,6 +156,7 @@ class MainActivity : AppCompatActivity() {
         btnMessages = findViewById(R.id.btn_messages)
         btnBrightness = findViewById(R.id.btn_brightness)
         phoneLink = findViewById(R.id.phone_link)
+        lockWarning = findViewById(R.id.lock_warning)
         btnHome = findViewById(R.id.btn_home)
         btnApps = findViewById(R.id.btn_apps)
         batteryIcon = findViewById(R.id.battery_icon)
@@ -328,6 +331,14 @@ class MainActivity : AppCompatActivity() {
         val linked = scenes.phoneLinked || audioLinked
         Log.d(TAG, "phone link: gatt=${scenes.phoneLinked} audio=$audioLinked")
         phoneLink.alpha = if (linked) 1f else 0.3f
+
+        // Display-off degrades to a no-op when the accessibility service is not enabled, which has
+        // happened repeatedly after package installs. Show it instead of leaving the wearer to
+        // wonder why the glasses never sleep.
+        //   adb shell settings put secure enabled_accessibility_services \
+        //     com.abbas.hudlauncher/.HudLockService
+        //   adb shell settings put secure accessibility_enabled 1
+        lockWarning.visibility = if (HudLockService.available) View.GONE else View.VISIBLE
     }
 
     @Suppress("DEPRECATION")

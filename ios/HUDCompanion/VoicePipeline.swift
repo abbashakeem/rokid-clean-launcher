@@ -93,7 +93,8 @@ final class VoicePipeline: ObservableObject {
                 phase = conversation.error.isEmpty ? .answered : .failed
             }
         } else {
-            Task { await ask(text) }
+            status = "no conversation wired"
+            phase = .failed
         }
     }
 
@@ -161,35 +162,6 @@ final class VoicePipeline: ObservableObject {
 
     // MARK: backend
 
-    private func ask(_ text: String) async {
-        guard let url = URL(string: Secrets.backendBaseURL + "/assistant") else { return }
-        var r = URLRequest(url: url)
-        r.httpMethod = "POST"
-        r.setValue(Secrets.backendAPIKey, forHTTPHeaderField: "X-API-KEY")
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "messages": [["role": "user", "content": text]],
-            "facts": memory?.facts ?? [],
-        ])
-        r.timeoutInterval = 30
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: r)
-            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            guard code == 200 else {
-                let body = String(data: data, encoding: .utf8) ?? ""
-                status = "backend \(code): \(body.prefix(120))"
-                phase = .failed
-                return
-            }
-            let o = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            reply = (o?["reply"] as? String) ?? ""
-            status = "answered by \((o?["provider"] as? String) ?? "?")"
-            phase = .answered
-        } catch {
-            status = "backend unreachable: \(error.localizedDescription)"
-            phase = .failed
-        }
-    }
 }
 
 /// Hands a single Opus packet to the converter exactly once.

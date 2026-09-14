@@ -218,6 +218,13 @@ final class Conversation: ObservableObject {
 
         // Direct to the provider when a key is configured: our backend is on Render's free tier
         // and a cold start measured 237 seconds, which no voice assistant can tolerate.
+        // Apple's on-device model first when asked for: no key, no network, nothing leaves the
+        // phone. Smaller than the cloud models and with no current world knowledge, so it is
+        // opt-in rather than the default.
+        if let settings, settings.useAppleModel, AppleModel.isReady {
+            await sendToAppleModel(question, facts: facts)
+            return
+        }
         if let settings, settings.useDirectProvider {
             await sendDirectToGemini(question, facts: facts, settings: settings)
             return
@@ -371,12 +378,17 @@ final class AppSettings: ObservableObject {
     @Published var preferDirect: Bool {
         didSet { UserDefaults.standard.set(preferDirect, forKey: "hud.preferDirect") }
     }
+    /// Apple's on-device model: free, offline, private, and smaller than the cloud models.
+    @Published var useAppleModel: Bool {
+        didSet { UserDefaults.standard.set(useAppleModel, forKey: "hud.useApple") }
+    }
 
     init() {
         let d = UserDefaults.standard
         backendBaseURL = d.string(forKey: "hud.backendURL") ?? Secrets.backendBaseURL
         geminiModel = d.string(forKey: "hud.geminiModel") ?? "gemini-3.6-flash"
         preferDirect = d.object(forKey: "hud.preferDirect") as? Bool ?? true
+        useAppleModel = d.object(forKey: "hud.useApple") as? Bool ?? false
         let storedBackend = Keychain.get("hud.backendKey")
         backendAPIKey = storedBackend.isEmpty ? Secrets.backendAPIKey : storedBackend
         geminiAPIKey = Keychain.get("hud.geminiKey")
@@ -386,7 +398,8 @@ final class AppSettings: ObservableObject {
     var useDirectProvider: Bool { preferDirect && !geminiAPIKey.isEmpty }
 
     var routeDescription: String {
-        useDirectProvider
+        if useAppleModel { return AppleModel.statusText }
+        return useDirectProvider
             ? "Calling Gemini directly (no backend, no cold start)"
             : "Via backend — first request after idle can take minutes"
     }
@@ -398,7 +411,14 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Use Apple on-device model", isOn: $settings.useAppleModel)
+                    .disabled(!AppleModel.isSupported)
+                if settings.useAppleModel {
+                    Text(AppleModel.statusText).font(.caption)
+                        .foregroundColor(AppleModel.isReady ? .green : .orange)
+                }
                 Toggle("Call Gemini directly", isOn: $settings.preferDirect)
+                    .disabled(settings.useAppleModel)
                 SecureField("Gemini API key", text: $settings.geminiAPIKey)
                 TextField("Gemini model", text: $settings.geminiModel)
                 Text(settings.routeDescription).font(.caption).foregroundColor(.secondary)
@@ -492,6 +512,106 @@ extension Conversation {
             }
         } catch {
             self.error = "gemini unreachable: \(error.localizedDescription)"
+        }
+    }
+}
+
+
+// MARK: - Apple on-device model
+
+import FoundationModels
+
+/// Apple's on-device language model, used when the wearer opts in.
+///
+/// Availability is genuinely conditional - the device must be eligible, Apple Intelligence must be
+/// switched on, and the model must have downloaded - so the reason is surfaced rather than letting
+/// a request fail blankly.
+enum AppleModel {
+    /// False on anything below iOS 26, where the framework does not exist at all.
+    static var isSupported: Bool {
+        if #available(iOS 26, *) { return true }
+        return false
+    }
+
+    static var isReady: Bool {
+        guard #available(iOS 26, *) else { return false }
+        if case .available = SystemLanguageModel.default.availability { return true }
+        return false
+    }
+
+    static var statusText: String {
+        guard #available(iOS 26, *) else {
+            return "Apple model needs iOS 26 or newer"
+        }
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return "Apple on-device model ready (free, offline, private)"
+        case .unavailable(let reason):
+            switch reason {
+            case .deviceNotEligible:
+                return "Apple model unavailable: this device is not eligible"
+            case .appleIntelligenceNotEnabled:
+                return "Apple model unavailable: turn on Apple Intelligence in Settings"
+            case .modelNotReady:
+                return "Apple model still downloading — try again shortly"
+            @unknown default:
+                return "Apple model unavailable"
+            }
+        @unknown default:
+            return "Apple model availability unknown"
+        }
+    }
+}
+
+extension Conversation {
+    /// Ask Apple's on-device model. No key, no network, nothing leaves the device.
+    ///
+    /// History and context are folded into the prompt because the session is created per request;
+    /// keeping a long-lived session would be faster but would hold context we cannot inspect.
+    func sendToAppleModel(_ question: String, facts: [String]) async {
+        var context = "Current local time: "
+            + Date().formatted(date: .complete, time: .shortened) + ".\n"
+        if let events = calendar?.events(), !events.isEmpty {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "EEE d MMM HH:mm"
+            let lines = events.prefix(5).compactMap { e -> String? in
+                guard let title = e["title"] as? String else { return nil }
+                var line = "- " + title
+                if let ms = e["start"] as? Int {
+                    line += " at " + fmt.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+                }
+                return line
+            }
+            if !lines.isEmpty { context += "Upcoming events:\n" + lines.joined(separator: "\n") + "\n" }
+        }
+        if !facts.isEmpty {
+            context += "Facts the wearer asked you to remember:\n"
+                + facts.map { "- " + $0 }.joined(separator: "\n") + "\n"
+        }
+        let recent = turns.suffix(8).dropLast().map {
+            ($0.role == .user ? "Wearer: " : "You: ") + $0.text
+        }.joined(separator: "\n")
+
+        let instructions = "You are a voice assistant on smart glasses. Replies are read on a tiny "
+            + "monocular display and spoken aloud, so answer in at most two short sentences. "
+            + "No markdown, no lists, no preamble."
+        var prompt = context
+        if !recent.isEmpty { prompt += "\nRecent conversation:\n" + recent + "\n" }
+        prompt += "\nWearer asks: " + question
+
+        guard #available(iOS 26, *) else {
+            error = "Apple model needs iOS 26 or newer"
+            return
+        }
+        do {
+            let session = LanguageModelSession(instructions: instructions)
+            let response = try await session.respond(to: prompt)
+            let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { error = "Apple model returned nothing" } else {
+                turns.append(Turn(role: .assistant, text: text))
+            }
+        } catch {
+            self.error = "Apple model failed: \(error.localizedDescription)"
         }
     }
 }

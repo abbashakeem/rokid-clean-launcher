@@ -179,6 +179,11 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="@id/bar"
             app:layout_constraintBottom_toBottomOf="@id/bar">
+            <ImageView android:id="@+id/lock_warning"
+                android:layout_width="11dp" android:layout_height="11dp"
+                android:layout_marginEnd="6dp"
+                android:src="@drawable/ic_lock_warning" android:contentDescription="@null"
+                android:visibility="gone" />
             <ImageView android:id="@+id/phone_link"
                 android:layout_width="11dp" android:layout_height="14dp"
                 android:layout_marginEnd="6dp"
