@@ -32,6 +32,13 @@ final class BLEClient: NSObject, ObservableObject {
     private var inbound = Data()
     /// Called with each complete message the glasses send us.
     var onMessage: ((String, [String: Any]) -> Void)?
+
+    /// Audio arriving from the glasses. Published so the UI can show this side actually
+    /// reassembling data: the glasses can only report that their GATT writes completed, which is
+    /// not the same as the phone parsing them.
+    @Published var audioFrames = 0
+    @Published var audioBytes = 0
+    @Published var audioActive = false
     private var queue: [Data] = []
     private var subscribedCentral: CBCentral?
     /// Guards against publishing the service more than once (see startAdvertising).
@@ -116,6 +123,22 @@ final class BLEClient: NSObject, ObservableObject {
         return true
     }
 
+    /// Tally audio so the UI proves reassembly, not merely that writes completed.
+    private func note(type: String, data: [String: Any]) {
+        switch type {
+        case "audio_start":
+            audioFrames = 0; audioBytes = 0; audioActive = true
+        case "audio":
+            guard let frames = data["frames"] as? [String] else { return }
+            audioFrames += frames.count
+            audioBytes += frames.reduce(0) { $0 + (Data(base64Encoded: $1)?.count ?? 0) }
+        case "audio_end":
+            audioActive = false
+        default:
+            break
+        }
+    }
+
     private func beginAdvertising(on p: CBPeripheralManager) {
         p.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [hudService],
@@ -171,7 +194,9 @@ extension BLEClient: CBPeripheralManagerDelegate {
                 inbound.removeSubrange(0..<(4 + len))
                 if let o = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                    let type = o["type"] as? String {
-                    onMessage?(type, o["data"] as? [String: Any] ?? [:])
+                    let payload = o["data"] as? [String: Any] ?? [:]
+                    note(type: type, data: payload)
+                    onMessage?(type, payload)
                 }
             }
         }

@@ -46,6 +46,13 @@ struct ContentView: View {
                     }
                     .disabled(!cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
+                    if ble.audioFrames > 0 {
+                        Text(ble.audioActive
+                             ? "Receiving audio: \(ble.audioFrames) frames, \(ble.audioBytes / 1024) KB"
+                             : "Audio received: \(ble.audioFrames) frames, \(ble.audioBytes / 1024) KB")
+                            .font(.caption)
+                            .foregroundColor(ble.audioActive ? .green : .secondary)
+                    }
                     Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
                         .font(.caption2).foregroundColor(.secondary)
                 }
