@@ -16,6 +16,10 @@ import Speech
 /// mean the glasses stream constantly, which the battery work argues against.
 @MainActor
 final class VoicePipeline: ObservableObject {
+    /// What the UI should show. One value rather than inferring state from three strings.
+    enum Phase: Equatable { case idle, listening, thinking, answered, failed }
+
+    @Published var phase: Phase = .idle
     @Published var transcript = ""
     @Published var reply = ""
     @Published var status = ""
@@ -33,9 +37,9 @@ final class VoicePipeline: ObservableObject {
     // MARK: session lifecycle, driven by the glasses
 
     func begin() {
-        transcript = ""; reply = ""; status = "listening"
+        transcript = ""; reply = ""; phase = .listening; status = "listening"
         guard let recognizer, recognizer.isAvailable else {
-            status = "recogniser unavailable"; return
+            status = "recogniser unavailable"; phase = .failed; return
         }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
@@ -49,7 +53,10 @@ final class VoicePipeline: ObservableObject {
             if let result {
                 self.transcript = result.bestTranscription.formattedString
             }
-            if let error { self.status = "recognition failed: \(error.localizedDescription)" }
+            if let error {
+                self.status = "recognition failed: \(error.localizedDescription)"
+                self.phase = .failed
+            }
         }
     }
 
@@ -59,8 +66,9 @@ final class VoicePipeline: ObservableObject {
         task = nil
         tearDownConverter()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { status = "nothing heard"; return }
+        guard !text.isEmpty else { status = "nothing heard"; phase = .idle; return }
         status = "thinking"
+        phase = .thinking
         Task { await ask(text) }
     }
 
@@ -80,6 +88,7 @@ final class VoicePipeline: ObservableObject {
         let st = AudioConverterNew(&src, &dst, &c)
         guard st == noErr, let c else {
             status = "opus decode unavailable (status \(st))"
+            phase = .failed
             return false
         }
         converter = c
@@ -143,13 +152,16 @@ final class VoicePipeline: ObservableObject {
             guard code == 200 else {
                 let body = String(data: data, encoding: .utf8) ?? ""
                 status = "backend \(code): \(body.prefix(120))"
+                phase = .failed
                 return
             }
             let o = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             reply = (o?["reply"] as? String) ?? ""
             status = "answered by \((o?["provider"] as? String) ?? "?")"
+            phase = .answered
         } catch {
             status = "backend unreachable: \(error.localizedDescription)"
+            phase = .failed
         }
     }
 }

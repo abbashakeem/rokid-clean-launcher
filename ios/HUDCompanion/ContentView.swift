@@ -47,6 +47,30 @@ struct ContentView: View {
                     }
                     .disabled(!cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
+                    // Prominent state, because a grey caption is easy to miss while wearing
+                    // the glasses and talking.
+                    if voice.phase != .idle {
+                        HStack(spacing: 8) {
+                            switch voice.phase {
+                            case .listening:
+                                Circle().fill(.red).frame(width: 12, height: 12)
+                                Text("Listening").font(.headline).foregroundColor(.red)
+                            case .thinking:
+                                ProgressView().scaleEffect(0.7)
+                                Text("Thinking").font(.headline).foregroundColor(.orange)
+                            case .answered:
+                                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+                                Text("Answered").font(.headline).foregroundColor(.green)
+                            case .failed:
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+                                Text("Problem").font(.headline).foregroundColor(.red)
+                            case .idle:
+                                EmptyView()
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
                     if !voice.status.isEmpty {
                         Text(voice.status).font(.caption).foregroundColor(.secondary)
                     }
