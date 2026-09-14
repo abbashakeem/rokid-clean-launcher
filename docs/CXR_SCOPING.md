@@ -117,9 +117,35 @@ The bitrate above WAS measured while speaking: ~1.5 KB/s = ~12 kbps for 16kHz
 mono speech, against a link budget of ~24 KB/s. That is roughly a sixteenth of
 the available bandwidth, so audio is not a constraint on this design.
 
-Still unverified: nobody has decoded the received frames back to audio, so the
-path is proven to carry bytes intactly but NOT yet proven to carry intelligible
-speech.
+Speech capture confirmed by LISTENING (2026-09-14), not by metrics. Four sources
+were recorded 5s each while the wearer spoke continuously, written to WAV and
+played back: MIC, VOICE_COMMUNICATION, CAMCORDER and UNPROCESSED all contain
+intelligible words.
+
+| Source | rms | peak | noise floor | usable |
+|---|---|---|---|---|
+| MIC | 300 | 3140 | 36 | yes |
+| VOICE_COMMUNICATION | 325 | 2297 | 133 | yes, highest floor |
+| CAMCORDER | 362 | 3089 | 19 | yes, best SNR by measurement |
+| UNPROCESSED | 88 | 603 | 3.9 | yes, quietest/rawest |
+| VOICE_RECOGNITION | 0 | 0 | - | NO - returns pure silence and underruns |
+
+Input devices enumerated: types 15, 18, 15, 25, 16, 8 (all "RG-glasses").
+
+Two lessons recorded because they cost real time:
+
+- **The glasses must be worn.** Desk captures peaked around 150 and held only
+  room noise; worn captures peak around 3000 with clear speech. An earlier claim
+  in this file that wearing made no measurable difference was wrong - it was
+  measured in a silent room, where proximity had nothing to affect.
+- **Level metrics do not identify speech.** A "bursty envelope" was reported as
+  speech when it was noise, and VOICE_COMMUNICATION scored 0% voiced on that
+  same metric while containing clear words. Dump to WAV and listen; do not infer
+  speech from rms/peak.
+
+Still unverified: the received Opus frames have never been decoded back to
+audio, so the transport is proven to carry bytes intact but the codec stage is
+not independently confirmed.
 
 Two bugs were required to get here, both in our own code:
 
