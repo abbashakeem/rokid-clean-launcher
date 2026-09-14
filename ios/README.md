@@ -49,6 +49,24 @@ Message: `{"type":"calendar","data":{"events":[{"title","start":ms,"end":ms,"all
 Times are epoch milliseconds. Adding new message types (a note, a nav destination) is just another
 `type` handled in `HudApp.onMessage` on the launcher and a `send(type:…)` here.
 
+## Assistant routes
+
+Settings → Assistant → Route:
+
+| Route | What happens |
+|---|---|
+| Apple first, then Gemini (default) | Apple's on-device model triages the question (guided generation, one boolean: `needsInternet`). If false, Apple answers; if the answer contains `ESCALATE` or a no-access phrase, Gemini answers instead. If true, or if Apple fails at any step, Gemini answers. |
+| Apple only | On-device, offline, admits when it lacks information. |
+| Gemini | Direct from the phone with web search. |
+| Backend | Our FastAPI backend; the only route with weather, and the one that cold-starts. |
+
+Routes degrade automatically: no Gemini key means the cloud is the backend; Apple not ready means
+the Apple routes become Gemini or backend. The route description on the main screen says what
+you will actually get. The chat shows "via …" under each reply so an unexpectedly thin answer can
+be attributed to the small model rather than the prompt.
+
+The old `hud.useApple` / `hud.preferDirect` settings migrate into `hud.route` on first launch.
+
 ## Next
 
 - Share extension so "Share → HUD" from Google/Apple Maps pushes a destination.

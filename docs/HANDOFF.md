@@ -88,6 +88,13 @@ arrive intact; phone-side counter agrees with the glasses.
   captured on-device, answers instantly, no model call
 - Text chat shares one conversation with voice; last 20 turns travel with each request
 - Settings screen: keys in Keychain, editable at runtime
+- **Apple orchestrator** (route "Apple first, then Gemini", the default): Apple triages each
+  question with FoundationModels guided generation (`@Generable Triage { needsInternet: Bool }`,
+  greedy sampling), answers on-device when it can, and the cloud answers otherwise. An Apple
+  answer is retried on the cloud if it contains the `ESCALATE` sentinel the prompt asks for, or
+  one of the no-access phrases in `Escalation.admissions`. Any Apple failure at either step also
+  falls through to the cloud. Which route answered is shown in chat and in the voice status.
+  Built clean; **not yet exercised on the phone** — the triage boundary needs real questions.
 
 **Camera**
 - Our app **can** open camera 0 despite Rokid's assistserver existing. 9,989-byte JPEG captured.
@@ -100,7 +107,6 @@ arrive intact; phone-side counter agrees with the glasses.
 | Item | Notes |
 |---|---|
 | **Vision** | Camera proven, Gemini `inline_data` shape confirmed. Needs: JPEG over the existing BLE link, then Gemini vision. ~10KB is <1s on the link. |
-| **Apple orchestrator** | Apple answers what it can, routes the rest to Gemini. Recommended design: constrained triage on Apple (it is unreliable at free-form tool calls), plus auto-escalation when its answer contains a refusal or no-internet admission. |
 | **Function button** | Dropped after 4 attempts. It is `KEY_MENU` on `/dev/input/event0` → `KEYCODE_SPRITE_FUNCTION`, claimed by `SingleKeyGesture` at the policy layer before app dispatch, then broadcast as `ACTION_SPRITE_BUTTON_UP`. Short press = picture, long = video. Use our own trigger instead. |
 | **Memory durability** | Solved by moving to the phone. Backend `DATA_DIR` is ephemeral (no disk in `render.yaml`). |
 | **BLE address rotation** | If the link drops *and* iOS rotates its address *and* the app is backgrounded, reconnect fails until the app is foregrounded. Bonding exists but is stored against the private address. |

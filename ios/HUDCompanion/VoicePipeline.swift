@@ -89,7 +89,7 @@ final class VoicePipeline: ObservableObject {
             Task {
                 await conversation.send(text, facts: memory?.facts ?? [])
                 reply = conversation.turns.last?.text ?? ""
-                status = conversation.error.isEmpty ? "answered" : conversation.error
+                status = conversation.error.isEmpty ? "answered via " + conversation.lastRoute : conversation.error
                 phase = conversation.error.isEmpty ? .answered : .failed
             }
         } else {
