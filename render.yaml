@@ -23,6 +23,14 @@ services:
         sync: false
       - key: OWM_API_KEY
         sync: false
+      # Assistant providers. Keys stay here, never on the phone, so they can be rotated in one
+      # place and a lost device leaks nothing. Set whichever you use; the other can stay blank.
+      - key: ASSISTANT_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: LAT
         sync: false
       - key: LON

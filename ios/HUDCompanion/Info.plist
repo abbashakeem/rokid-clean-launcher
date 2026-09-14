@@ -5,6 +5,10 @@
 	<!-- Merged with Xcode's generated Info.plist (GENERATE_INFOPLIST_FILE stays YES).
 	     Array-valued keys such as UIBackgroundModes cannot be expressed as INFOPLIST_KEY_*
 	     build settings; the earlier attempt to do so never reached the built app. -->
+	<!-- SFSpeechRecognizer crashes on first use without this, the same class of missing
+	     Info.plist key that crashed the app on the state-restoration attempt. -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribes what you say to the glasses so the assistant can answer.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-peripheral</string>

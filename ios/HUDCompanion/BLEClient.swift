@@ -39,6 +39,12 @@ final class BLEClient: NSObject, ObservableObject {
     @Published var audioFrames = 0
     @Published var audioBytes = 0
     @Published var audioActive = false
+
+    /// Audio handoff to the voice pipeline. BLEClient stays a transport and does not own
+    /// transcription, so the app layer decides what listens.
+    var onAudioStart: (() -> Void)?
+    var onAudioFrames: (([Data]) -> Void)?
+    var onAudioEnd: (() -> Void)?
     private var queue: [Data] = []
     private var subscribedCentral: CBCentral?
     /// Guards against publishing the service more than once (see startAdvertising).
@@ -128,12 +134,16 @@ final class BLEClient: NSObject, ObservableObject {
         switch type {
         case "audio_start":
             audioFrames = 0; audioBytes = 0; audioActive = true
+            onAudioStart?()
         case "audio":
             guard let frames = data["frames"] as? [String] else { return }
+            let decoded = frames.compactMap { Data(base64Encoded: $0) }
             audioFrames += frames.count
-            audioBytes += frames.reduce(0) { $0 + (Data(base64Encoded: $1)?.count ?? 0) }
+            audioBytes += decoded.reduce(0) { $0 + $1.count }
+            onAudioFrames?(decoded)
         case "audio_end":
             audioActive = false
+            onAudioEnd?()
         default:
             break
         }

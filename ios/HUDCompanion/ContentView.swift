@@ -3,6 +3,7 @@ import EventKit
 
 struct ContentView: View {
     @StateObject private var ble = BLEClient()
+    @StateObject private var voice = VoicePipeline()
     @StateObject private var cal = CalendarSync()
     @State private var lastPush = ""
     /// Epoch seconds of the last automatic push; manual pushes ignore the throttle.
@@ -46,6 +47,15 @@ struct ContentView: View {
                     }
                     .disabled(!cal.authorized)
                     if !lastPush.isEmpty { Text(lastPush).font(.caption).foregroundColor(.secondary) }
+                    if !voice.status.isEmpty {
+                        Text(voice.status).font(.caption).foregroundColor(.secondary)
+                    }
+                    if !voice.transcript.isEmpty {
+                        Text("You: \(voice.transcript)").font(.callout)
+                    }
+                    if !voice.reply.isEmpty {
+                        Text(voice.reply).font(.callout).foregroundColor(.accentColor)
+                    }
                     if ble.audioFrames > 0 {
                         Text(ble.audioActive
                              ? "Receiving audio: \(ble.audioFrames) frames, \(ble.audioBytes / 1024) KB"
@@ -61,6 +71,10 @@ struct ContentView: View {
             .onAppear {
                 if !cal.authorized { cal.requestAccess() }
                 ble.onReady = { autoPush() }
+                VoicePipeline.requestPermission()
+                ble.onAudioStart = { voice.begin() }
+                ble.onAudioFrames = { frames in for f in frames { voice.feed(opus: f) } }
+                ble.onAudioEnd = { voice.end() }
                 cal.onChange = { autoPush() }
             }
         }
