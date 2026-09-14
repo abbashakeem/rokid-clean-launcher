@@ -155,3 +155,35 @@ Two bugs were required to get here, both in our own code:
 - Android permits one outstanding GATT operation, so writing chunks in a loop
   failed on every chunk after the first. Writes are now queued and pumped from
   `onCharacteristicWrite`.
+
+
+## Voice assistant: working end to end (2026-09-14)
+
+Verified on hardware, whole chain:
+
+| Stage | Result |
+|---|---|
+| Glasses microphone | speech captured, glasses worn |
+| Opus encode | ~12 kbps via c2.android.opus.encoder |
+| BLE transport | 50 batches, 498 frames, 0 dropped |
+| iOS Opus decode | **works** via AudioConverter / kAudioFormatOpus |
+| Transcription | Apple SFSpeechRecognizer, accurate word for word |
+| Backend | /assistant -> Gemini, reply rendered on the phone |
+
+The iOS Opus decode was the one assumption carried unverified all day: it was
+confirmed only against macOS CoreAudio. It does work on iOS. The ADPCM fallback
+(ima4, confirmed present in the decodable list) was never needed.
+
+The first working reply exposed the next gap - asked about the weather, the
+assistant said it had no access, while the backend already held weather and
+calendar. /assistant now injects live context (local time, current weather,
+next five events) into the system prompt for both providers.
+
+Two properties of that injection worth keeping:
+
+- **Client context is not injectable.** AssistantRequest carries a `context`
+  field but the server overwrites it; sending "IGNORE ALL PREVIOUS INSTRUCTIONS"
+  in it has no effect.
+- **Lookups are isolated.** A failing weather provider logs and is omitted; it
+  never prevents the assistant answering an unrelated question. Verified by
+  running with no OWM_API_KEY configured.

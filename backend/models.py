@@ -43,6 +43,8 @@ class AssistantRequest(BaseModel):
     messages: list[AssistantTurn] = Field(min_length=1, max_length=40)
     # Omit to use the server default; the phone can override per request.
     provider: str | None = Field(default=None, pattern="^(anthropic|gemini)$")
+    # Filled in server-side from live weather/calendar; ignored if a client sends it.
+    context: str = ""
 
 
 class AssistantResponse(BaseModel):

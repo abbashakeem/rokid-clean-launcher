@@ -219,6 +219,45 @@ load();
 </script></body></html>"""
 
 
+async def _live_context() -> str:
+    """
+    Today's weather and the next few events, so the assistant can answer from the wearer's own
+    data instead of declining.
+
+    Every lookup is best-effort and isolated: a broken weather provider must not stop the
+    assistant answering a question that had nothing to do with weather.
+    """
+    parts: list[str] = []
+    now = datetime.now(timezone.utc).astimezone()
+    parts.append(f"Current local time: {now:%A %d %B %Y, %H:%M}.")
+
+    try:
+        w = await get_weather()
+        parts.append(f"Current weather: {w.text}, feels like {getattr(w, 'feels_like', w.temp)}.")
+    except Exception as exc:  # noqa: BLE001 - degrade, never fail the request
+        log.info("assistant: weather context unavailable: %s", exc)
+
+    try:
+        await refresh_if_stale()
+        events = store.upcoming(5)
+        if events:
+            lines = [
+                f"- {e.title} at {e.start_time}" + (f" ({e.location})" if e.location else "")
+                for e in events
+            ]
+            parts.append("Upcoming calendar events:\n" + "\n".join(lines))
+        else:
+            parts.append("No upcoming calendar events.")
+    except Exception as exc:  # noqa: BLE001
+        log.info("assistant: calendar context unavailable: %s", exc)
+
+    return "\n".join(parts)
+
+
+def _system_prompt(context: str) -> str:
+    return settings.assistant_system + ("\n\n" + context if context else "")
+
+
 async def _call_anthropic(req: AssistantRequest) -> tuple[str, str]:
     if not settings.anthropic_api_key:
         raise HTTPException(
@@ -226,7 +265,7 @@ async def _call_anthropic(req: AssistantRequest) -> tuple[str, str]:
     payload = {
         "model": settings.anthropic_model,
         "max_tokens": settings.assistant_max_tokens,
-        "system": settings.assistant_system,
+        "system": _system_prompt(req.context),
         "messages": [{"role": t.role, "content": t.content} for t in req.messages],
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -258,7 +297,7 @@ async def _call_gemini(req: AssistantRequest) -> tuple[str, str]:
     ]
     payload = {
         "contents": contents,
-        "systemInstruction": {"parts": [{"text": settings.assistant_system}]},
+        "systemInstruction": {"parts": [{"text": _system_prompt(req.context)}]},
         "generationConfig": {"maxOutputTokens": settings.assistant_max_tokens},
     }
     url = (
@@ -292,6 +331,7 @@ async def assistant(req: AssistantRequest) -> AssistantResponse:
     choice without a redeploy.
     """
     provider = req.provider or settings.assistant_provider
+    req = req.model_copy(update={"context": await _live_context()})
     try:
         if provider == "gemini":
             reply, model = await _call_gemini(req)
