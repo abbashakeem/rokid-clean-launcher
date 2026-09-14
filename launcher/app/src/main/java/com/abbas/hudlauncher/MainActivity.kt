@@ -211,6 +211,7 @@ class MainActivity : AppCompatActivity() {
         // debug nav feed lives for the whole activity, like the real binder callbacks
         if (BuildConfig.DEBUG) registerReceiver(debugNavReceiver, IntentFilter("com.abbas.hudlauncher.DEBUG_NAV"), Context.RECEIVER_EXPORTED)
         if (BuildConfig.DEBUG) registerReceiver(micTestReceiver, IntentFilter("com.abbas.hudlauncher.MIC_TEST"), Context.RECEIVER_EXPORTED)
+        if (BuildConfig.DEBUG) registerReceiver(camTestReceiver, IntentFilter("com.abbas.hudlauncher.CAM_TEST"), Context.RECEIVER_EXPORTED)
         headerViews = listOf(clockView, amPmView, dateStrip, wxCity, wxTemp, wxCondition, wxFeels, wxIcon)
         // no click sounds on the touchpad bar
         window.decorView.isSoundEffectsEnabled = false
@@ -292,6 +293,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         if (BuildConfig.DEBUG) try { unregisterReceiver(debugNavReceiver) } catch (_: Exception) {}
         if (BuildConfig.DEBUG) try { unregisterReceiver(micTestReceiver) } catch (_: Exception) {}
+        if (BuildConfig.DEBUG) try { unregisterReceiver(camTestReceiver) } catch (_: Exception) {}
     }
 
     /** Rokid shows a now-playing pill in the bar while Bluetooth music is active; ours replaces Home. */
@@ -555,6 +557,12 @@ class MainActivity : AppCompatActivity() {
      * ENTER itself (click on key-up), so a tap in the app picker would re-trigger the Apps button.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Unfiltered, so a key we do not yet handle still shows up. KEYCODE_SPRITE_FUNCTION is
+        // claimed by SingleKeyGesture at the policy layer, so it may never reach us at all - this
+        // is how we find out rather than inferring from an empty log.
+        if (BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) {
+            Log.d(TAG, "dispatchKey code=${event.keyCode} (${KeyEvent.keyCodeToString(event.keyCode)})")
+        }
         val code = event.keyCode
         val handledCodes = setOf(
             KeyEvent.KEYCODE_NOTIFICATION, KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_DPAD_CENTER,
@@ -610,6 +618,19 @@ class MainActivity : AppCompatActivity() {
      *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --ei icon 3 --ei step 350 --es road "Chapel St" --ei remain 4200 --ei secs 780 --ei speed 42
      *   adb shell am broadcast -a com.abbas.hudlauncher.DEBUG_NAV --es cmd stop
      */
+    /** Debug-only: one still capture, written to the app's files dir. */
+    private val camTestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            CameraProbe.capture(this@MainActivity) { bytes ->
+                if (bytes == null) { Log.w(TAG, "CAM: capture failed"); return@capture }
+                try {
+                    java.io.File(filesDir, "shot.jpg").writeBytes(bytes)
+                    Log.d(TAG, "CAM: wrote ${bytes.size} bytes to shot.jpg")
+                } catch (t: Throwable) { Log.w(TAG, "CAM: write failed: ${t.message}") }
+            }
+        }
+    }
+
     /** Debug-only: see MicProbe. */
     private val micTestReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, i: Intent?) { AssistantMic.toggle(this@MainActivity) }

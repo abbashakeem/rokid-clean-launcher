@@ -27,6 +27,8 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- assistant capture: adb shell pm grant com.abbas.hudlauncher android.permission.RECORD_AUDIO -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- assistant vision: adb shell pm grant com.abbas.hudlauncher android.permission.CAMERA -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />

@@ -458,9 +458,7 @@ extension Conversation {
             contents.append(["role": t.role == .assistant ? "model" : "user",
                              "parts": [["text": t.text]]])
         }
-        var system = "You are a voice assistant on smart glasses. Replies are read on a tiny "
-            + "monocular display and spoken aloud, so answer in at most two short sentences. "
-            + "No markdown, no lists, no preamble.\n\n"
+        var system = Prompts.base + "\n" + Prompts.capabilities(web: true) + "\n\n"
         system += "Current local time: " + Date().formatted(date: .complete, time: .shortened) + ".\n"
         if let events = calendar?.events(), !events.isEmpty {
             // "start" is epoch MILLISECONDS as an Int (see CalendarSync.events). Passing it
@@ -592,9 +590,7 @@ extension Conversation {
             ($0.role == .user ? "Wearer: " : "You: ") + $0.text
         }.joined(separator: "\n")
 
-        let instructions = "You are a voice assistant on smart glasses. Replies are read on a tiny "
-            + "monocular display and spoken aloud, so answer in at most two short sentences. "
-            + "No markdown, no lists, no preamble."
+        let instructions = Prompts.base + "\n" + Prompts.capabilities(web: false)
         var prompt = context
         if !recent.isEmpty { prompt += "\nRecent conversation:\n" + recent + "\n" }
         prompt += "\nWearer asks: " + question
@@ -613,5 +609,33 @@ extension Conversation {
         } catch {
             self.error = "Apple model failed: \(error.localizedDescription)"
         }
+    }
+}
+
+
+// MARK: - Shared prompt text
+
+/// One place for the system prompt, so every provider describes itself accurately.
+///
+/// Added because the on-device model, asked what it could access, answered "only what's on your
+/// screen right now" - false, and invented. Small models confabulate about their own capabilities
+/// when not told, so state them.
+enum Prompts {
+    static let base =
+        "You are a voice assistant on smart glasses. Replies are read on a tiny monocular "
+        + "display and spoken aloud, so answer in at most two short sentences. No markdown, "
+        + "no lists, no preamble."
+
+    static func capabilities(web: Bool) -> String {
+        var s = "What you can actually see: the wearer's current local time, their upcoming "
+            + "calendar events, and any facts they asked you to remember. These are supplied to "
+            + "you in this prompt. You cannot see their screen, read their messages, or browse "
+            + "their files."
+        s += web
+            ? " You can search the web, so you may answer questions about current events."
+            : " You have no internet access, so say so plainly for anything needing current"
+              + " information rather than guessing."
+        s += " If asked what you can access, answer from this list rather than speculating."
+        return s
     }
 }
