@@ -30,3 +30,19 @@ class WeatherResponse(BaseModel):
     city: str
     text: str
     fetched_at: datetime
+
+
+class AssistantTurn(BaseModel):
+    """One message in the conversation. The phone owns the history; we stay stateless."""
+
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class AssistantRequest(BaseModel):
+    messages: list[AssistantTurn] = Field(min_length=1, max_length=40)
+
+
+class AssistantResponse(BaseModel):
+    reply: str
+    model: str

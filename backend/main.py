@@ -18,11 +18,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse
 
 from config import settings
-from models import CalendarResponse, Event, WeatherResponse
+from models import CalendarResponse, Event, WeatherResponse, AssistantRequest, AssistantResponse, AssistantTurn
 from store import store
 from weather import get_weather
 from settings_store import LauncherSettings, settings_store
@@ -216,3 +217,46 @@ f.addEventListener('submit',async e=>{ e.preventDefault(); const body={}; for(co
  const r=await fetch('/config',{method:'PUT',headers:H(),body:JSON.stringify(body)}); st.textContent=r.ok?'Saved. The glasses pick it up within 5 minutes, or on wake.':'Save failed ('+r.status+')'; });
 load();
 </script></body></html>"""
+
+
+@app.post("/assistant", response_model=AssistantResponse, dependencies=[Depends(verify_key)])
+async def assistant(req: AssistantRequest) -> AssistantResponse:
+    """
+    Answer a transcribed question, holding the Anthropic key server-side.
+
+    Stateless on purpose: the phone sends the whole conversation each time, so a restart here
+    loses nothing and this service never becomes a session store. Speech-to-text happens on the
+    phone (Apple's on-device recogniser), so only text crosses the network.
+    """
+    if not settings.anthropic_api_key:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "assistant not configured: set ANTHROPIC_API_KEY",
+        )
+    payload = {
+        "model": settings.anthropic_model,
+        "max_tokens": settings.assistant_max_tokens,
+        "system": settings.assistant_system,
+        "messages": [{"role": t.role, "content": t.content} for t in req.messages],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"upstream unreachable: {exc}") from exc
+
+    if r.status_code != 200:
+        # Surface the real reason (bad key, rate limit, unknown model) rather than a blank 502.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"anthropic {r.status_code}: {r.text[:300]}")
+
+    body = r.json()
+    text = "".join(b.get("text", "") for b in body.get("content", []) if b.get("type") == "text")
+    return AssistantResponse(reply=text.strip(), model=body.get("model", settings.anthropic_model))

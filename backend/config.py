@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     units: str = "metric"        # metric | imperial
     city: str = ""               # display name override; defaults to OWM's station name
 
+    # Assistant. The key lives here, never on the phone, so it can be rotated in one place
+    # and a lost device does not leak it.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-5"
+    assistant_max_tokens: int = 512
+    assistant_system: str = (
+        "You are a voice assistant on smart glasses. Replies are read on a tiny "
+        "monocular display and spoken aloud, so answer in at most two short "
+        "sentences. No markdown, no lists, no preamble."
+    )
+
     tz: str = "Australia/Melbourne"
     data_dir: str = "./data"
 
