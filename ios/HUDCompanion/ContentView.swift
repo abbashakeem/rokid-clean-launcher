@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var voice = VoicePipeline()
     @StateObject private var memory = MemoryStore()
     @StateObject private var chat = Conversation()
+    @StateObject private var settings = AppSettings()
     @StateObject private var cal = CalendarSync()
     @State private var lastPush = ""
     /// Epoch seconds of the last automatic push; manual pushes ignore the throttle.
@@ -113,6 +114,12 @@ struct ContentView: View {
                     if let last = chat.turns.last {
                         Text(last.text).font(.caption).foregroundColor(.secondary).lineLimit(2)
                     }
+                    NavigationLink {
+                        SettingsView(settings: settings)
+                    } label: {
+                        Label("Assistant settings", systemImage: "gearshape")
+                    }
+                    Text(settings.routeDescription).font(.caption).foregroundColor(.secondary)
                 } header: { Text("Assistant") }
             }
             .navigationTitle("HUD Companion")
@@ -122,6 +129,8 @@ struct ContentView: View {
                 VoicePipeline.requestPermission()
                 voice.memory = memory
                 voice.conversation = chat
+                chat.settings = settings
+                chat.calendar = cal
                 ble.onAudioStart = { voice.begin() }
                 ble.onAudioFrames = { frames in for f in frames { voice.feed(opus: f) } }
                 ble.onAudioEnd = { voice.end() }
@@ -194,6 +203,11 @@ final class Conversation: ObservableObject {
     /// session does not grow the prompt without limit.
     private let historyLimit = 20
 
+    /// Set by ContentView. Decides whether we call our backend or the provider directly.
+    var settings: AppSettings?
+    /// Used to build context locally when bypassing the backend.
+    var calendar: CalendarSync?
+
     func send(_ text: String, facts: [String]) async {
         let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !busy else { return }
@@ -202,14 +216,24 @@ final class Conversation: ObservableObject {
         error = ""
         defer { busy = false }
 
-        guard let url = URL(string: Secrets.backendBaseURL + "/assistant") else {
+        // Direct to the provider when a key is configured: our backend is on Render's free tier
+        // and a cold start measured 237 seconds, which no voice assistant can tolerate.
+        if let settings, settings.useDirectProvider {
+            await sendDirectToGemini(question, facts: facts, settings: settings)
+            return
+        }
+
+        let base = settings?.backendBaseURL ?? Secrets.backendBaseURL
+        let apiKey = settings?.backendAPIKey ?? Secrets.backendAPIKey
+        guard let url = URL(string: base + "/assistant") else {
             error = "bad backend URL"; return
         }
         var r = URLRequest(url: url)
         r.httpMethod = "POST"
-        r.setValue(Secrets.backendAPIKey, forHTTPHeaderField: "X-API-KEY")
+        r.setValue(apiKey, forHTTPHeaderField: "X-API-KEY")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.timeoutInterval = 60
+        // Generous, because a cold Render instance took 237s to wake.
+        r.timeoutInterval = 300
         let history = turns.suffix(historyLimit).map { ["role": $0.role.rawValue, "content": $0.text] }
         r.httpBody = try? JSONSerialization.data(withJSONObject: ["messages": history, "facts": facts])
 
@@ -302,5 +326,172 @@ struct ChatView: View {
             return
         }
         Task { await chat.send(text, facts: memory.facts) }
+    }
+}
+
+
+// MARK: - Credentials and routing
+
+/// Small Keychain wrapper. API keys do not belong in UserDefaults.
+enum Keychain {
+    static func set(_ value: String, for key: String) {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrAccount as String: key]
+        SecItemDelete(q as CFDictionary)
+        guard !value.isEmpty else { return }
+        var add = q
+        add[kSecValueData as String] = Data(value.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func get(_ key: String) -> String {
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrAccount as String: key,
+                                kSecReturnData as String: true,
+                                kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let d = out as? Data, let s = String(data: d, encoding: .utf8) else { return "" }
+        return s
+    }
+}
+
+/// Editable settings, so keys and routing can change without rebuilding the app.
+@MainActor
+final class AppSettings: ObservableObject {
+    @Published var backendBaseURL: String {
+        didSet { UserDefaults.standard.set(backendBaseURL, forKey: "hud.backendURL") }
+    }
+    @Published var backendAPIKey: String { didSet { Keychain.set(backendAPIKey, for: "hud.backendKey") } }
+    @Published var geminiAPIKey: String { didSet { Keychain.set(geminiAPIKey, for: "hud.geminiKey") } }
+    @Published var geminiModel: String {
+        didSet { UserDefaults.standard.set(geminiModel, forKey: "hud.geminiModel") }
+    }
+    @Published var preferDirect: Bool {
+        didSet { UserDefaults.standard.set(preferDirect, forKey: "hud.preferDirect") }
+    }
+
+    init() {
+        let d = UserDefaults.standard
+        backendBaseURL = d.string(forKey: "hud.backendURL") ?? Secrets.backendBaseURL
+        geminiModel = d.string(forKey: "hud.geminiModel") ?? "gemini-3.6-flash"
+        preferDirect = d.object(forKey: "hud.preferDirect") as? Bool ?? true
+        let storedBackend = Keychain.get("hud.backendKey")
+        backendAPIKey = storedBackend.isEmpty ? Secrets.backendAPIKey : storedBackend
+        geminiAPIKey = Keychain.get("hud.geminiKey")
+    }
+
+    /// Direct only when we actually hold a provider key.
+    var useDirectProvider: Bool { preferDirect && !geminiAPIKey.isEmpty }
+
+    var routeDescription: String {
+        useDirectProvider
+            ? "Calling Gemini directly (no backend, no cold start)"
+            : "Via backend — first request after idle can take minutes"
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Call Gemini directly", isOn: $settings.preferDirect)
+                SecureField("Gemini API key", text: $settings.geminiAPIKey)
+                TextField("Gemini model", text: $settings.geminiModel)
+                Text(settings.routeDescription).font(.caption).foregroundColor(.secondary)
+            } header: { Text("Assistant") } footer: {
+                Text("Direct avoids the backend entirely. Our backend runs on a free tier that "
+                     + "sleeps when idle; a cold start was measured at 237 seconds. Weather is "
+                     + "only available on the backend route.")
+            }
+            Section {
+                TextField("Backend URL", text: $settings.backendBaseURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                SecureField("Backend API key", text: $settings.backendAPIKey)
+            } header: { Text("Backend") } footer: {
+                Text("Still used for the glasses' calendar and weather, and as the assistant "
+                     + "route when no Gemini key is set.")
+            }
+        }
+        .navigationTitle("Assistant settings")
+    }
+}
+
+// MARK: - Direct provider call
+
+extension Conversation {
+    /// Call Gemini from the phone, building context locally.
+    ///
+    /// Weather is not included here: the backend holds that key, and fetching it would reintroduce
+    /// the dependency this route exists to avoid. Calendar, facts and local time all come from the
+    /// device.
+    func sendDirectToGemini(_ question: String, facts: [String], settings: AppSettings) async {
+        let model = settings.geminiModel
+        let url = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/"
+                      + model + ":generateContent")!
+        var contents: [[String: Any]] = []
+        for t in turns.suffix(20) {
+            contents.append(["role": t.role == .assistant ? "model" : "user",
+                             "parts": [["text": t.text]]])
+        }
+        var system = "You are a voice assistant on smart glasses. Replies are read on a tiny "
+            + "monocular display and spoken aloud, so answer in at most two short sentences. "
+            + "No markdown, no lists, no preamble.\n\n"
+        system += "Current local time: " + Date().formatted(date: .complete, time: .shortened) + ".\n"
+        if let events = calendar?.events(), !events.isEmpty {
+            // "start" is epoch MILLISECONDS as an Int (see CalendarSync.events). Passing it
+            // through String(describing:) would hand the model "Gym at 1789329600000", which it
+            // would likely paper over by inventing a time.
+            let fmt = DateFormatter()
+            fmt.dateFormat = "EEE d MMM HH:mm"
+            let lines = events.prefix(5).compactMap { e -> String? in
+                guard let title = e["title"] as? String else { return nil }
+                var line = "- " + title
+                if let ms = e["start"] as? Int {
+                    let when = Date(timeIntervalSince1970: Double(ms) / 1000)
+                    line += " at " + fmt.string(from: when)
+                }
+                if let loc = e["location"] as? String, !loc.isEmpty { line += " (" + loc + ")" }
+                return line
+            }
+            if !lines.isEmpty { system += "Upcoming events:\n" + lines.joined(separator: "\n") + "\n" }
+        }
+        if !facts.isEmpty {
+            system += "Facts the wearer asked you to remember:\n"
+                + facts.map { "- " + $0 }.joined(separator: "\n")
+        }
+
+        var r = URLRequest(url: url)
+        r.httpMethod = "POST"
+        r.setValue(settings.geminiAPIKey, forHTTPHeaderField: "x-goog-api-key")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.timeoutInterval = 45
+        r.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "contents": contents,
+            "systemInstruction": ["parts": [["text": system]]],
+            "generationConfig": ["maxOutputTokens": 512],
+            "tools": [["google_search": [:]]],
+        ])
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: r)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard code == 200 else {
+                error = "gemini \(code): \(String(data: data, encoding: .utf8)?.prefix(160) ?? "")"
+                return
+            }
+            let o = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let cands = o?["candidates"] as? [[String: Any]] ?? []
+            let parts = (cands.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []
+            let text = parts.compactMap { $0["text"] as? String }.joined()
+            if text.isEmpty { error = "empty reply" } else {
+                turns.append(Turn(role: .assistant, text: text))
+            }
+        } catch {
+            self.error = "gemini unreachable: \(error.localizedDescription)"
+        }
     }
 }
