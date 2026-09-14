@@ -601,7 +601,7 @@ class MainActivity : AppCompatActivity() {
      */
     /** Debug-only: see MicProbe. */
     private val micTestReceiver = object : BroadcastReceiver() {
-        override fun onReceive(c: Context?, i: Intent?) { AssistantMic.toggle(this@MainActivity) }
+        override fun onReceive(c: Context?, i: Intent?) { MicProbe.run(this@MainActivity) }
     }
 
     private val debugNavReceiver = object : BroadcastReceiver() {

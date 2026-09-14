@@ -23,6 +23,8 @@ object AssistantMic {
 
     private val pending = ArrayList<ByteArray>(FRAMES_PER_BATCH)
     private var encoder: OpusEncoder? = null
+    /** Debug capture of the raw PCM, so the audio can be listened to rather than only counted. */
+    private var pcmDump: java.io.OutputStream? = null
     @Volatile private var sent = 0L
     @Volatile private var dropped = 0L
 
@@ -41,12 +43,21 @@ object AssistantMic {
         }
         encoder = enc
 
+        pcmDump = try {
+            java.io.BufferedOutputStream(java.io.FileOutputStream(java.io.File(ctx.filesDir, "mic_dump.pcm")))
+        } catch (t: Throwable) { Log.w(TAG, "no pcm dump: ${t.message}"); null }
+
         val ok = MicCapture.start(
             ctx,
-            onPcm = { buf, n -> enc.feed(buf, n) },
+            onPcm = { buf, n ->
+                enc.feed(buf, n)
+                try { pcmDump?.write(buf, 0, n) } catch (_: Throwable) {}
+            },
             onStop = { why ->
                 flush()
                 enc.stop()
+                try { pcmDump?.flush(); pcmDump?.close() } catch (_: Throwable) {}
+                pcmDump = null
                 encoder = null
                 Log.d(TAG, "stopped ($why): sent=$sent batches, dropped=$dropped")
                 BleScanService.sendToPhone("audio_end", org.json.JSONObject())
