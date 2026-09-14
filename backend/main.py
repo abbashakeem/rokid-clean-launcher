@@ -27,6 +27,7 @@ from models import CalendarResponse, Event, WeatherResponse, AssistantRequest, A
 from store import store
 from weather import get_weather
 from settings_store import LauncherSettings, settings_store
+from memory_store import memory_store
 import caldav_sync
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -251,6 +252,13 @@ async def _live_context() -> str:
     except Exception as exc:  # noqa: BLE001
         log.info("assistant: calendar context unavailable: %s", exc)
 
+    try:
+        remembered = memory_store.as_context()
+        if remembered:
+            parts.append(remembered)
+    except Exception as exc:  # noqa: BLE001
+        log.info("assistant: memory context unavailable: %s", exc)
+
     return "\n".join(parts)
 
 
@@ -336,6 +344,20 @@ async def assistant(req: AssistantRequest) -> AssistantResponse:
     choice without a redeploy.
     """
     provider = req.provider or settings.assistant_provider
+
+    # Explicit capture: "remember that I park on level 3" stores a fact and confirms, without
+    # spending a model call. Anything else is left alone.
+    latest = req.messages[-1]
+    if latest.role == "user":
+        lowered = latest.content.strip().lower()
+        for prefix in ("remember that ", "remember "):
+            if lowered.startswith(prefix):
+                fact = latest.content.strip()[len(prefix):].strip(" .")
+                if fact:
+                    memory_store.add(fact)
+                    return AssistantResponse(
+                        reply=f"Noted: {fact}.", model="memory", provider="memory")
+
     req = req.model_copy(update={"context": await _live_context()})
     try:
         if provider == "gemini":
@@ -345,3 +367,21 @@ async def assistant(req: AssistantRequest) -> AssistantResponse:
     except httpx.HTTPError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"upstream unreachable: {exc}") from exc
     return AssistantResponse(reply=reply, model=model, provider=provider)
+
+
+@app.get("/memory", dependencies=[Depends(verify_key)])
+async def memory_list() -> dict:
+    """What the assistant has been asked to remember."""
+    return {"facts": memory_store.all()}
+
+
+@app.delete("/memory/{fact_id}", dependencies=[Depends(verify_key)])
+async def memory_delete(fact_id: str) -> dict:
+    if not memory_store.delete(fact_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such fact")
+    return {"deleted": fact_id}
+
+
+@app.delete("/memory", dependencies=[Depends(verify_key)])
+async def memory_clear() -> dict:
+    return {"cleared": memory_store.clear()}
