@@ -45,6 +45,10 @@ class AssistantRequest(BaseModel):
     provider: str | None = Field(default=None, pattern="^(anthropic|gemini)$")
     # Filled in server-side from live weather/calendar; ignored if a client sends it.
     context: str = ""
+    # Remembered facts, owned and persisted by the phone. The backend runs on an ephemeral
+    # filesystem, so it is the wrong place to keep them; the phone is always with the wearer,
+    # its storage actually survives, and the facts never leave the device except to be used.
+    facts: list[str] = Field(default_factory=list, max_length=200)
 
 
 class AssistantResponse(BaseModel):

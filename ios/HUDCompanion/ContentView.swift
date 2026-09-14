@@ -4,6 +4,7 @@ import EventKit
 struct ContentView: View {
     @StateObject private var ble = BLEClient()
     @StateObject private var voice = VoicePipeline()
+    @StateObject private var memory = MemoryStore()
     @StateObject private var cal = CalendarSync()
     @State private var lastPush = ""
     /// Epoch seconds of the last automatic push; manual pushes ignore the throttle.
@@ -88,6 +89,18 @@ struct ContentView: View {
                             .foregroundColor(ble.audioActive ? .green : .secondary)
                     }
                     Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
+                }
+                Section {
+                    if memory.facts.isEmpty {
+                        Text("Say \"remember that ...\" to teach the assistant something.")
+                            .font(.caption).foregroundColor(.secondary)
+                    } else {
+                        ForEach(Array(memory.facts.enumerated()), id: \.offset) { _, fact in
+                            Text(fact).font(.callout)
+                        }
+                        .onDelete { memory.delete(at: $0) }
+                    }
+                } header: { Text("Remembered") }
                         .font(.caption2).foregroundColor(.secondary)
                 }
             }
@@ -96,6 +109,7 @@ struct ContentView: View {
                 if !cal.authorized { cal.requestAccess() }
                 ble.onReady = { autoPush() }
                 VoicePipeline.requestPermission()
+                voice.memory = memory
                 ble.onAudioStart = { voice.begin() }
                 ble.onAudioFrames = { frames in for f in frames { voice.feed(opus: f) } }
                 ble.onAudioEnd = { voice.end() }

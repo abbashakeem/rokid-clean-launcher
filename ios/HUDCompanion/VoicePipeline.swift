@@ -24,6 +24,9 @@ final class VoicePipeline: ObservableObject {
     @Published var reply = ""
     @Published var status = ""
 
+    /// Phone-owned remembered facts, sent with each question and captured from "remember ...".
+    var memory: MemoryStore?
+
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -67,6 +70,15 @@ final class VoicePipeline: ObservableObject {
         tearDownConverter()
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { status = "nothing heard"; phase = .idle; return }
+
+        // "remember ..." is handled entirely on the phone: instant, free, and no model call.
+        if let confirmation = memory?.capture(from: text) {
+            reply = confirmation
+            status = "remembered"
+            phase = .answered
+            return
+        }
+
         status = "thinking"
         phase = .thinking
         Task { await ask(text) }
@@ -144,6 +156,7 @@ final class VoicePipeline: ObservableObject {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.httpBody = try? JSONSerialization.data(withJSONObject: [
             "messages": [["role": "user", "content": text]],
+            "facts": memory?.facts ?? [],
         ])
         r.timeoutInterval = 30
         do {
