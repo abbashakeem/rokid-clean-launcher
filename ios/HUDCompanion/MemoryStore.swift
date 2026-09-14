@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 /// Facts the wearer has asked the assistant to remember, owned by the phone.
 ///

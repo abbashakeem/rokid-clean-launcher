@@ -81,3 +81,27 @@ the same file. An actor-isolated function cannot be converted to a C function po
 `AudioConverterFillComplexBuffer`'s callback, its context struct and the sentinel constant are all
 marked `private nonisolated`. Without that the build fails with "a C function pointer can only be
 formed from a reference to a 'func' or a literal closure".
+
+
+## And a third copy: `MemoryStore 2.swift`
+
+Adding `MemoryStore.swift` in Xcode produced `MemoryStore 2.swift` at the project root, because a
+file of that name already sat there. **That space-named copy is the one in the target** — the
+project references `path = "MemoryStore 2.swift";`. Three identical copies now exist:
+
+```
+~/Documents/HUDCompanion/MemoryStore 2.swift      <- built
+~/Documents/HUDCompanion/MemoryStore.swift        <- ignored
+~/Documents/HUDCompanion/HUDCompanion/MemoryStore.swift  <- ignored
+```
+
+Only one is in the target, so there is no duplicate-symbol error, but editing either ignored copy
+changes nothing while still building cleanly. When editing, write all of them and check the md5s
+match. Tidying properly means re-adding from one location in Xcode and deleting the strays.
+
+## `remove(atOffsets:)` needs SwiftUI
+
+`IndexSet`-based removal is a SwiftUI extension on `RangeReplaceableCollection`, not Foundation. A
+store that exposes `delete(at offsets: IndexSet)` for `.onDelete` must `import SwiftUI` even though
+it contains no views, or the build fails with "not available due to missing import of defining
+module 'SwiftUI'".

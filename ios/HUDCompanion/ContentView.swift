@@ -89,6 +89,7 @@ struct ContentView: View {
                             .foregroundColor(ble.audioActive ? .green : .secondary)
                     }
                     Text("Auto-pushes on connect and calendar changes, at most every 2 hours.")
+                        .font(.caption2).foregroundColor(.secondary)
                 }
                 Section {
                     if memory.facts.isEmpty {
@@ -101,8 +102,6 @@ struct ContentView: View {
                         .onDelete { memory.delete(at: $0) }
                     }
                 } header: { Text("Remembered") }
-                        .font(.caption2).foregroundColor(.secondary)
-                }
             }
             .navigationTitle("HUD Companion")
             .onAppear {
