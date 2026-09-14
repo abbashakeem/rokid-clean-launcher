@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Google retired 2.5-flash for new users and its 404 names the successor; keep this current
     # rather than trusting a remembered model id. Overridable via GEMINI_MODEL.
     gemini_model: str = "gemini-3.6-flash"
+    # Grounding with Google Search. On by default: a voice assistant that cannot answer current
+    # questions is the worse failure. Costs a little more and adds latency, so it is switchable
+    # via GEMINI_SEARCH without a redeploy.
+    gemini_search: bool = True
     assistant_max_tokens: int = 512
     assistant_system: str = (
         "You are a voice assistant on smart glasses. Replies are read on a tiny "

@@ -295,11 +295,16 @@ async def _call_gemini(req: AssistantRequest) -> tuple[str, str]:
         {"role": ("model" if t.role == "assistant" else "user"), "parts": [{"text": t.content}]}
         for t in req.messages
     ]
-    payload = {
+    payload: dict = {
         "contents": contents,
         "systemInstruction": {"parts": [{"text": _system_prompt(req.context)}]},
         "generationConfig": {"maxOutputTokens": settings.assistant_max_tokens},
     }
+    if settings.gemini_search:
+        # Lets the model search the web for anything outside its training data. Google does not
+        # allow mixing search tools with non-search tools in one request, so if we ever give the
+        # assistant callable tools instead of prompt-injected context, this has to give way.
+        payload["tools"] = [{"google_search": {}}]
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{settings.gemini_model}:generateContent"
