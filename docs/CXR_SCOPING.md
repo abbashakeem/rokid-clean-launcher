@@ -113,9 +113,13 @@ Microphone -> Opus -> BLE -> phone, verified on device 2026-09-14.
 498 of an expected 500 frames (20ms each over 10s) arrived, so the path is
 effectively lossless at this rate. ~1.5 KB/s against a link budget of ~24 KB/s.
 
-Note the bitrate above was measured on quiet input and is NOT representative of
-speech; Opus is variable-bitrate and real speech costs more. The headroom is
-large enough that this does not change the design.
+The bitrate above WAS measured while speaking: ~1.5 KB/s = ~12 kbps for 16kHz
+mono speech, against a link budget of ~24 KB/s. That is roughly a sixteenth of
+the available bandwidth, so audio is not a constraint on this design.
+
+Still unverified: nobody has decoded the received frames back to audio, so the
+path is proven to carry bytes intactly but NOT yet proven to carry intelligible
+speech.
 
 Two bugs were required to get here, both in our own code:
 
