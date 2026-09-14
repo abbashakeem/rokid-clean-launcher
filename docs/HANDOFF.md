@@ -98,6 +98,7 @@ arrive intact; phone-side counter agrees with the glasses.
   to Gemini with a live reading. "Is the pharmacy open?" was triaged local and Apple answered
   with the literal "ESCALE" - the sentinel with letters dropped - so the sentinel match is now
   tolerant (short reply starting "ESCAL"). Expect the small model to mangle fixed tokens.
+  Re-tested after the fix: the same question escalated to Gemini and got a grounded answer.
 
 **Camera**
 - Our app **can** open camera 0 despite Rokid's assistserver existing. 9,989-byte JPEG captured.
