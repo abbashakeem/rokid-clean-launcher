@@ -98,3 +98,30 @@ Measured against our negotiated MTU of 185 (about 182 usable bytes per packet):
 So raw PCM is not viable glasses->phone over BLE, and the transport is built encoding-agnostic:
 4-byte big-endian length + UTF-8 JSON, chunked to 180 bytes, over characteristic `6E400002`
 (`CHAR_WRITE`). The encoder choice is still open.
+
+## Assistant audio path: proven end to end
+
+Microphone -> Opus -> BLE -> phone, verified on device 2026-09-14.
+
+| Stage | Measured |
+|---|---|
+| Capture | 318720 B in 10.0s = 15943 Hz (target 16000) |
+| Opus encode | c2.android.opus.encoder, 24kbps configured |
+| Transport | 50 batches of 200ms, 0 dropped |
+| Phone received | 498 frames, 15 KB, reassembled and counted in the UI |
+
+498 of an expected 500 frames (20ms each over 10s) arrived, so the path is
+effectively lossless at this rate. ~1.5 KB/s against a link budget of ~24 KB/s.
+
+Note the bitrate above was measured on quiet input and is NOT representative of
+speech; Opus is variable-bitrate and real speech costs more. The headroom is
+large enough that this does not change the design.
+
+Two bugs were required to get here, both in our own code:
+
+- `writeCh` was declared, cleared and read but never assigned: the edit meant to
+  resolve it used a string replace with no assertion, silently matched nothing,
+  and every send hit a null handle.
+- Android permits one outstanding GATT operation, so writing chunks in a loop
+  failed on every chunk after the first. Writes are now queued and pumped from
+  `onCharacteristicWrite`.
